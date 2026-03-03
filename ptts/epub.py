@@ -742,6 +742,13 @@ def html_to_text(
 
 
 def normalize_text(text: str) -> str:
+    # Normalize Unicode separators that carry whitespace meaning
+    text = text.replace("\u2028", "\n")   # line separator   → newline
+    text = text.replace("\u2029", "\n\n") # paragraph separator → double newline
+    text = text.replace("\u202f", " ")    # narrow no-break space → space
+    # Strip invisible Unicode format characters (category Cf): BOM,
+    # zero-width spaces, soft hyphens, directional marks, etc.
+    text = re.sub(r"[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]", "", text)
     text = (
         text.replace("\u02bc", "'")
         .replace("\u2018", "'")
@@ -753,11 +760,14 @@ def normalize_text(text: str) -> str:
         .replace("\u00ab", '"')
         .replace("\u00bb", '"')
     )
+    # Normalize Unicode ellipsis to three ASCII dots
+    text = text.replace("\u2026", "...")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = _normalize_break_runs(text)
     text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"\.[ \t]*\.[ \t]*\.", "...", text)
+    # Collapse any run of 3+ dots (with optional whitespace between) to "..."
+    text = re.sub(r"\.(?:[\s]*\.){2,}", "...", text)
     return text.strip()
 
 
