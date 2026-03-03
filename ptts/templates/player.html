@@ -4934,8 +4934,6 @@
           !state.book ||
           !state.queue.length ||
           !hasSelection ||
-          state.synthRunning ||
-          state.mergeRunning ||
           state.chunkRegenRunning;
         regenChunkBtn.disabled = disabled;
         if (state.chunkRegenRunning) {
@@ -4946,8 +4944,6 @@
           regenChunkBtn.title = "No chunks available.";
         } else if (!hasSelection) {
           regenChunkBtn.title = "Select a chunk to regenerate.";
-        } else if (state.synthRunning || state.mergeRunning) {
-          regenChunkBtn.title = "Stop TTS/merge before regenerating.";
         } else {
           const label = describeIndex(state.selectedQueueIndex);
           regenChunkBtn.title = `Regenerate ${label}`;
@@ -4956,10 +4952,6 @@
 
       async function regenerateChunk() {
         if (!state.book || state.chunkRegenRunning) {
-          return;
-        }
-        if (state.synthRunning || state.mergeRunning) {
-          setStatus("Stop TTS/merge before regenerating.");
           return;
         }
         currentAudio.pause();
