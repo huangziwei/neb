@@ -651,7 +651,12 @@ def html_to_text(
     head = html.lstrip()[:512].lower()
     parser = "lxml-xml" if (head.startswith(b"<?xml") or b"xmlns=" in head) else "lxml"
     soup = BeautifulSoup(html, parser)
-    for tag in soup(["script", "style", "nav", "header", "footer", "aside", "noscript"]):
+    for tag in soup(["script", "style", "nav", "footer", "aside", "noscript"]):
+        tag.decompose()
+    # Only strip page-level <header> (direct child of <body>);
+    # keep section-level ones — they hold chapter titles.
+    body = soup.body or soup
+    for tag in body.find_all("header", recursive=False):
         tag.decompose()
     for tag in soup.find_all("sup"):
         tag.decompose()
