@@ -915,6 +915,16 @@ def _transliterate_pali_sanskrit(text: str) -> str:
     return _normalize_combining_diacritics(text)
 
 
+_BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}"}
+_CLOSE_BRACKETS = set(_BRACKET_PAIRS.values())
+
+
+def _strip_brackets(text: str) -> str:
+    if not text:
+        return text
+    return "".join(ch for ch in text if ch not in _CLOSE_BRACKETS and ch not in _BRACKET_PAIRS)
+
+
 def _strip_double_quotes(text: str) -> str:
     if not text:
         return text
@@ -1839,6 +1849,7 @@ def prepare_tts_text(
     text: str,
     reading_overrides: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> str:
+    text = _strip_brackets(text)
     text = _strip_double_quotes(text)
     text = _strip_single_quotes(text)
     text = apply_reading_overrides(text, reading_overrides or [])
