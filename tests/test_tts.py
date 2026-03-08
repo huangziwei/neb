@@ -3,6 +3,8 @@ import logging
 import threading
 from pathlib import Path
 
+import pytest
+
 from ptts import tts
 
 
@@ -345,6 +347,27 @@ def test_prepare_tts_text_normalizes_page_verse_abbrev() -> None:
 def test_prepare_tts_text_keeps_pm_abbrev() -> None:
     text = "Meeting at 5 p.m."
     expected = "Meeting at five p.m."
+    assert tts.prepare_tts_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # Whole-chunk wrapping brackets stripped
+        ("(whole chunk)", "whole chunk."),
+        ("[whole chunk]", "whole chunk."),
+        # Unpaired closing bracket stripped
+        ("something.)", "something."),
+        ("something two three.)", "something two three."),
+        # Closing bracket after punctuation stripped even if paired
+        ("let start (one two three.)", "let start (one two three."),
+        # Paired brackets kept
+        ("let start (one two three)", "let start (one two three)."),
+        # No brackets unchanged
+        ("hello world", "hello world."),
+    ],
+)
+def test_prepare_tts_text_strips_brackets(text: str, expected: str) -> None:
     assert tts.prepare_tts_text(text) == expected
 
 

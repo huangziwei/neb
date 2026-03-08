@@ -921,12 +921,39 @@ def _transliterate_pali_sanskrit(text: str) -> str:
 
 _BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}"}
 _CLOSE_BRACKETS = set(_BRACKET_PAIRS.values())
+_CLOSE_TO_OPEN = {v: k for k, v in _BRACKET_PAIRS.items()}
 
 
 def _strip_brackets(text: str) -> str:
     if not text:
         return text
-    return "".join(ch for ch in text if ch not in _CLOSE_BRACKETS and ch not in _BRACKET_PAIRS)
+    stripped = text.strip()
+    # Strip brackets that wrap the entire chunk: "(whole chunk)" -> "whole chunk"
+    for open_b, close_b in _BRACKET_PAIRS.items():
+        if stripped.startswith(open_b) and stripped.endswith(close_b):
+            inner = stripped[1:-1]
+            # Only strip if the open bracket at start matches this close bracket
+            # and there's no unmatched nesting inside
+            depth = 0
+            matched = True
+            for ch in inner:
+                if ch == open_b:
+                    depth += 1
+                elif ch == close_b:
+                    if depth == 0:
+                        matched = False
+                        break
+                    depth -= 1
+            if matched:
+                stripped = inner
+    # Strip unpaired closing brackets (e.g. "something.)" -> "something.")
+    for close_b in _CLOSE_BRACKETS:
+        open_b = _CLOSE_TO_OPEN[close_b]
+        if close_b in stripped and open_b not in stripped:
+            stripped = stripped.replace(close_b, "")
+    # Strip closing bracket immediately after punctuation (bad for TTS)
+    stripped = re.sub(r"([.!?,;:])[\)\]\}]", r"\1", stripped)
+    return stripped
 
 
 def _strip_double_quotes(text: str) -> str:
