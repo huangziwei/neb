@@ -743,11 +743,19 @@ def html_to_text(
 
     # Keep semantic text blocks; skip container divs so nested headings/paragraphs
     # retain their own boundaries.
+    # Blockquote is a container that can hold other blocks; treat it specially
+    # so its children preserve their paragraph boundaries.
     block_tags = {"p", "li", "blockquote", "pre", *_HEADING_TAGS}
+    _leaf_block_tags = block_tags - {"blockquote"}
 
     blocks: List[tuple[str, bool]] = []
     for elem in root.find_all(block_tags):
-        if any(getattr(parent, "name", None) in block_tags for parent in elem.parents):
+        # Skip elements nested inside a leaf block (e.g. <p> inside <li>).
+        if any(getattr(parent, "name", None) in _leaf_block_tags for parent in elem.parents):
+            continue
+        # Skip blockquotes that contain block-level children — the children
+        # will be processed individually, preserving paragraph breaks.
+        if getattr(elem, "name", None) == "blockquote" and elem.find(_leaf_block_tags):
             continue
         for br in elem.find_all("br"):
             br.replace_with(_INLINE_BREAK_PLACEHOLDER)
