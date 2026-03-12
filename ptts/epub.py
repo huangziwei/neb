@@ -733,6 +733,7 @@ def html_to_text(
             or "credit" in class_text
             or "caption" in class_text
             or "image" in class_text
+            or "figure" in class_text
         ):
             tag.decompose()
             continue
