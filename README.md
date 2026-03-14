@@ -1,4 +1,4 @@
-# neb: Narrate English Books
+# neb: Narrate English Books with [Pocket-TTS](https://huggingface.co/kyutai/pocket-tts)
 
 ![screenshot](.github/screenshot/player.png)
 
@@ -15,9 +15,6 @@ uv sync
 ## Then you need to save the access token with correct permissions (I ticked everything in Repositories and Inference)
 ## This step can be skipped if you don't need voice cloning
 # uvx hf auth login
-
-## Run once and test if it works in the pocket-tts web ui, or not
-# uv run pocket-tts serve --host 0.0.0.0 --port 1912
 ```
 
 ## TTS a book
