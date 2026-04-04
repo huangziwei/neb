@@ -1,5 +1,6 @@
 .DS_Store
 .codex
+.claude
 .cache
 .uv-cache
 *cache*
