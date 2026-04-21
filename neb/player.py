@@ -28,6 +28,7 @@ from . import language as language_util
 from . import sanitize
 from . import tts as tts_util
 from .text import guess_title_from_path, read_clean_text
+from .text.common import READING_OVERRIDES_FILENAME, _load_reading_overrides
 from .voice import BUILTIN_VOICES, DEFAULT_VOICE, resolve_voice_prompt
 
 def _load_json(path: Path) -> dict:
@@ -2329,7 +2330,7 @@ def create_app(root_dir: Path) -> FastAPI:
     def reading_overrides_get(book_id: str) -> JSONResponse:
         book_dir = _resolve_book_dir(root_dir, book_id)
         try:
-            global_overrides, _ = tts_util._load_reading_overrides(book_dir)
+            global_overrides, _ = _load_reading_overrides(book_dir)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _no_store({"book_id": book_id, "overrides": global_overrides})
@@ -2349,7 +2350,7 @@ def create_app(root_dir: Path) -> FastAPI:
             )
 
         overrides = _normalize_reading_overrides(payload.overrides)
-        overrides_path = book_dir / tts_util.READING_OVERRIDES_FILENAME
+        overrides_path = book_dir / READING_OVERRIDES_FILENAME
         data: dict = {}
         if overrides_path.exists():
             try:
