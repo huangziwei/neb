@@ -600,6 +600,57 @@ def _voice_map_path(book_dir: Path) -> Path:
     return book_dir / "voice-map.json"
 
 
+def _model_config_path(book_dir: Path) -> Path:
+    return book_dir / "model-config.json"
+
+
+def _sanitize_model_config(payload: dict, book_dir: Path) -> dict:
+    """Coerce a raw model-config payload into a valid (language, layers) pair."""
+    source_language = None
+    if isinstance(payload, dict):
+        source_language = payload.get("language")
+    if not source_language:
+        toc = _load_json(book_dir / "clean" / "toc.json")
+        metadata = toc.get("metadata", {}) if isinstance(toc, dict) else {}
+        source_language = metadata.get("language")
+    language = language_util.resolve_language(source_language)
+
+    raw_layers = payload.get("layers") if isinstance(payload, dict) else None
+    try:
+        layers_int = int(raw_layers) if raw_layers is not None else None
+    except (TypeError, ValueError):
+        layers_int = None
+    layers = language_util.resolve_layers(language, layers_int)
+
+    return {"language": language, "layers": layers}
+
+
+def _load_model_config(book_dir: Path) -> dict:
+    data = _load_json(_model_config_path(book_dir))
+    return _sanitize_model_config(
+        data if isinstance(data, dict) else {}, book_dir
+    )
+
+
+def _write_model_config(book_dir: Path, config: dict) -> dict:
+    sanitized = _sanitize_model_config(config, book_dir)
+    path = _model_config_path(book_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(path, sanitized)
+    return sanitized
+
+
+def _model_config_options(language: str) -> dict:
+    return {
+        "languages": sorted(language_util.POCKET_TTS_LANGUAGES),
+        "language_display_names": {
+            name: language_util.display_name(name)
+            for name in sorted(language_util.POCKET_TTS_LANGUAGES)
+        },
+        "layers": language_util.available_layers(language),
+    }
+
+
 def _sanitize_voice_map(payload: dict, repo_root: Path, fallback_default: str) -> dict:
     default_voice = _normalize_voice_value(payload.get("default"), repo_root)
     if not default_voice:
@@ -723,12 +774,14 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
                 }
             )
 
+    model_config = _load_model_config(book_dir)
     manifest_language = (
         manifest.get("language") if isinstance(manifest, dict) else None
     )
-    language = language_util.resolve_language(
-        manifest_language or metadata.get("language")
+    manifest_layers = (
+        manifest.get("layers") if isinstance(manifest, dict) else None
     )
+    language = model_config["language"]
     return {
         "book": {
             "id": book_dir.name,
@@ -745,6 +798,12 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
             "source_origin": source_origin,
             "language": language,
             "language_display": language_util.display_name(language),
+            "model_config": model_config,
+            "model_config_options": _model_config_options(language),
+            "manifest_model": {
+                "language": manifest_language,
+                "layers": manifest_layers,
+            },
         },
         "chapters": chapters,
         "audio_base": f"/audio/{book_dir.name}/tts/segments",
@@ -1294,6 +1353,11 @@ class VoiceMapPayload(BaseModel):
     chapters: dict = {}
 
 
+class ModelConfigPayload(BaseModel):
+    language: Optional[str] = None
+    layers: Optional[int] = None
+
+
 class ChapterAction(BaseModel):
     book_id: str
     title: str
@@ -1464,6 +1528,62 @@ def create_app(root_dir: Path) -> FastAPI:
         path = _voice_map_path(book_dir)
         _atomic_write_json(path, data)
         return _no_store(data)
+
+    @app.get("/api/books/{book_id}/model-config")
+    def get_book_model_config(book_id: str) -> JSONResponse:
+        book_dir = _resolve_book_dir(root_dir, book_id)
+        config = _load_model_config(book_dir)
+        return _no_store(
+            {
+                "config": config,
+                "options": _model_config_options(config["language"]),
+            }
+        )
+
+    @app.post("/api/books/{book_id}/model-config")
+    def set_book_model_config(
+        book_id: str, payload: ModelConfigPayload
+    ) -> JSONResponse:
+        book_dir = _resolve_book_dir(root_dir, book_id)
+        manifest_path = book_dir / "tts" / "manifest.json"
+        prior_manifest = _load_json(manifest_path) if manifest_path.exists() else {}
+        config = _write_model_config(book_dir, payload.dict())
+
+        cache_cleared = False
+        if isinstance(prior_manifest, dict) and prior_manifest:
+            prior = (
+                prior_manifest.get("language"),
+                prior_manifest.get("layers"),
+            )
+            current = (config["language"], config["layers"])
+            if any(v is not None for v in prior) and prior != current:
+                job = jobs.get(book_id)
+                if job and job.process.poll() is None:
+                    job.process.terminate()
+                    try:
+                        job.process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        job.process.kill()
+                        job.process.wait(timeout=2)
+                    job.exit_code = job.process.returncode
+                    job.ended_at = time.time()
+                    if job.log_handle:
+                        job.log_handle.close()
+                        job.log_handle = None
+                seg_dir = book_dir / "tts" / "segments"
+                if seg_dir.exists():
+                    shutil.rmtree(seg_dir)
+                if manifest_path.exists():
+                    manifest_path.unlink()
+                cache_cleared = True
+
+        return _no_store(
+            {
+                "config": config,
+                "options": _model_config_options(config["language"]),
+                "cache_cleared": cache_cleared,
+            }
+        )
 
     @app.post("/api/books/delete")
     def delete_book(payload: DeleteBookRequest) -> JSONResponse:
@@ -2390,6 +2510,7 @@ def create_app(root_dir: Path) -> FastAPI:
         log_path = tts_dir / "synth.log"
         log_handle = log_path.open("w", encoding="utf-8")
 
+        model_config = _load_model_config(book_dir)
         cmd = [
             "uv",
             "run",
@@ -2407,6 +2528,10 @@ def create_app(root_dir: Path) -> FastAPI:
             str(payload.pad_ms),
             "--chunk-mode",
             payload.chunk_mode,
+            "--language",
+            model_config["language"],
+            "--layers",
+            str(model_config["layers"]),
         ]
         if use_voice_map and voice_map_path and voice_map_path.exists():
             cmd += ["--voice-map", str(voice_map_path)]
@@ -2500,6 +2625,7 @@ def create_app(root_dir: Path) -> FastAPI:
                         break
                 _atomic_write_json(manifest_path, manifest)
 
+        model_config = _load_model_config(book_dir)
         cmd = [
             "uv",
             "run",
@@ -2517,6 +2643,10 @@ def create_app(root_dir: Path) -> FastAPI:
             str(payload.pad_ms),
             "--chunk-mode",
             payload.chunk_mode,
+            "--language",
+            model_config["language"],
+            "--layers",
+            str(model_config["layers"]),
         ]
         if payload.rechunk:
             cmd.append("--rechunk")

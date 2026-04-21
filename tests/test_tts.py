@@ -851,3 +851,95 @@ def test_resolve_book_language_reads_toc_metadata(tmp_path: Path) -> None:
 
 def test_resolve_book_language_falls_back_on_missing_toc(tmp_path: Path) -> None:
     assert tts._resolve_book_language(tmp_path / "nowhere") == "english"
+
+
+def test_prepare_manifest_stores_default_layers(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Hello world",
+        path=None,
+    )
+    out_dir = tmp_path / "out"
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=out_dir,
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+    )
+    assert manifest["layers"] == 6
+    round_trip = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert round_trip["layers"] == 6
+
+
+def test_prepare_manifest_stores_explicit_layers(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Guten Tag",
+        path=None,
+    )
+    out_dir = tmp_path / "out"
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=out_dir,
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+        language="de",
+        layers=6,
+    )
+    assert manifest["language"] == "german"
+    assert manifest["layers"] == 6
+
+
+def test_prepare_manifest_coerces_unavailable_layers(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Hello world",
+        path=None,
+    )
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=tmp_path / "out",
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+        language="english",
+        layers=24,
+    )
+    assert manifest["layers"] == 6
+
+
+def test_prepare_manifest_coerces_french_to_24_layers(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Bonjour",
+        path=None,
+    )
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=tmp_path / "out",
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+        language="french",
+        layers=6,
+    )
+    assert manifest["language"] == "french"
+    assert manifest["layers"] == 24

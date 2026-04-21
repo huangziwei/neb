@@ -43,19 +43,25 @@ _TTS_WARNING_FILTER_INSTALLED = False
 _TTS_WARNING_CONTEXT_LOCK = threading.Lock()
 _TTS_WARNING_CONTEXT_STACK: List[dict[str, Any]] = []
 
-_TTS_MODEL_CACHE: Dict[str, Any] = {}
+_TTS_MODEL_CACHE: Dict[Tuple[str, int], Any] = {}
 _TTS_MODEL_CACHE_LOCK = threading.Lock()
 
 
-def _load_tts_model(language: Optional[str]) -> Any:
-    """Return a cached pocket-tts model for the given language."""
+def _load_tts_model(
+    language: Optional[str],
+    layers: Optional[int] = None,
+) -> Any:
+    """Return a cached pocket-tts model for (language, layers)."""
     _require_tts()
-    lang = language_util.normalize_language_tag(language)
+    lang = language_util.resolve_language(language)
+    lay = language_util.resolve_layers(lang, layers)
+    key = (lang, lay)
     with _TTS_MODEL_CACHE_LOCK:
-        model = _TTS_MODEL_CACHE.get(lang)
+        model = _TTS_MODEL_CACHE.get(key)
         if model is None:
-            model = TTSModel.load_model(language=lang)
-            _TTS_MODEL_CACHE[lang] = model
+            model_id = language_util.resolve_model_id(lang, lay)
+            model = TTSModel.load_model(language=model_id)
+            _TTS_MODEL_CACHE[key] = model
         return model
 
 
@@ -2146,8 +2152,10 @@ def prepare_manifest(
     chunk_mode: str,
     rechunk: bool,
     language: Optional[str] = None,
+    layers: Optional[int] = None,
 ) -> Tuple[Dict[str, Any], List[List[str]], int]:
     language = language_util.normalize_language_tag(language)
+    layers = language_util.resolve_layers(language, layers)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.json"
     chunk_root = out_dir / "chunks"
@@ -2249,6 +2257,7 @@ def prepare_manifest(
             "created_unix": int(time.time()),
             "voice": voice,
             "language": language,
+            "layers": int(layers),
             "max_chars": int(max_chars),
             "pad_ms": int(pad_ms),
             "chunk_mode": chunk_mode,
@@ -2258,6 +2267,7 @@ def prepare_manifest(
 
     manifest["voice"] = voice
     manifest["language"] = language
+    manifest["layers"] = int(layers)
     manifest["max_chars"] = int(max_chars)
     manifest["pad_ms"] = int(manifest.get("pad_ms", pad_ms))
     manifest["chunk_mode"] = chunk_mode
@@ -2311,6 +2321,7 @@ def chunk_book(
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = True,
+    layers: Optional[int] = None,
 ) -> Dict[str, Any]:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -2332,6 +2343,7 @@ def chunk_book(
         chunk_mode=chunk_mode,
         rechunk=rechunk,
         language=language,
+        layers=layers,
     )
     return manifest
 
@@ -2364,9 +2376,11 @@ def synthesize(
     reading_overrides_dir: Optional[Path] = None,
     base_dir: Optional[Path] = None,
     language: Optional[str] = None,
+    layers: Optional[int] = None,
 ) -> int:
     _require_tts()
     language = language_util.normalize_language_tag(language)
+    layers = language_util.resolve_layers(language, layers)
 
     if base_dir is None:
         base_dir = Path.cwd()
@@ -2415,6 +2429,7 @@ def synthesize(
             chunk_mode=chunk_mode,
             rechunk=rechunk,
             language=language,
+            layers=layers,
         )
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
@@ -2463,7 +2478,7 @@ def synthesize(
 
     write_status(out_dir, "cloning", "Preparing voice")
 
-    tts_model = _load_tts_model(language)
+    tts_model = _load_tts_model(language, layers)
     _install_tts_warning_filter()
     sample_rate = int(tts_model.sample_rate)
     if manifest.get("sample_rate") != sample_rate:
@@ -2748,7 +2763,10 @@ def synthesize_chunk(
         voice_id = _normalize_voice_id(entry.get("voice"), default_voice)
 
     voice_prompt = resolve_voice_prompt(voice_id, base_dir=base_dir)
-    tts_model = _load_tts_model(manifest.get("language"))
+    tts_model = _load_tts_model(
+        manifest.get("language"),
+        manifest.get("layers"),
+    )
     _install_tts_warning_filter()
     sample_rate = int(tts_model.sample_rate)
     if manifest.get("sample_rate") != sample_rate:
@@ -2833,6 +2851,7 @@ def synthesize_text(
     voice_map_path: Optional[Path] = None,
     base_dir: Optional[Path] = None,
     language: Optional[str] = None,
+    layers: Optional[int] = None,
 ) -> int:
     chapters = load_text_chapters(text_path)
     return synthesize(
@@ -2847,6 +2866,7 @@ def synthesize_text(
         reading_overrides_dir=None,
         base_dir=base_dir,
         language=language,
+        layers=layers,
     )
 
 
@@ -2860,6 +2880,8 @@ def synthesize_book(
     rechunk: bool = False,
     voice_map_path: Optional[Path] = None,
     base_dir: Optional[Path] = None,
+    language: Optional[str] = None,
+    layers: Optional[int] = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -2869,6 +2891,7 @@ def synthesize_book(
     except (FileNotFoundError, ValueError) as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
+    resolved_language = language or _resolve_book_language(book_dir)
     return synthesize(
         chapters=chapters,
         voice=voice,
@@ -2880,7 +2903,8 @@ def synthesize_book(
         voice_map_path=voice_map_path,
         reading_overrides_dir=book_dir,
         base_dir=base_dir,
-        language=_resolve_book_language(book_dir),
+        language=resolved_language,
+        layers=layers,
     )
 
 
@@ -2894,6 +2918,8 @@ def synthesize_book_sample(
     rechunk: bool = False,
     voice_map_path: Optional[Path] = None,
     base_dir: Optional[Path] = None,
+    language: Optional[str] = None,
+    layers: Optional[int] = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -2942,7 +2968,8 @@ def synthesize_book_sample(
         voice_map_path=voice_map_path,
         reading_overrides_dir=book_dir,
         base_dir=base_dir,
-        language=_resolve_book_language(book_dir),
+        language=language or _resolve_book_language(book_dir),
+        layers=layers,
     )
 
 
@@ -2994,6 +3021,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Ignore existing manifest and rechunk the input text",
     )
+    ap.add_argument(
+        "--language",
+        help="Pocket-tts language override (english, french, german, italian, portuguese, spanish)",
+    )
+    ap.add_argument(
+        "--layers",
+        type=int,
+        choices=[6, 24],
+        help="Flow-LM transformer layer count (6=fast, 24=higher quality)",
+    )
     return ap
 
 
@@ -3010,6 +3047,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             chunk_mode=args.chunk_mode,
             rechunk=args.rechunk,
             voice_map_path=args.voice_map,
+            language=args.language,
+            layers=args.layers,
         )
     if not args.out:
         parser.error("--out is required when using --text")
@@ -3022,6 +3061,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         chunk_mode=args.chunk_mode,
         rechunk=args.rechunk,
         voice_map_path=args.voice_map,
+        language=args.language,
+        layers=args.layers,
     )
 
 

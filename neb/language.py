@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional, Tuple
 
 POCKET_TTS_LANGUAGES = {
     "english",
@@ -14,6 +14,28 @@ POCKET_TTS_LANGUAGES = {
 }
 
 DEFAULT_LANGUAGE = "english"
+
+_POCKET_TTS_MODEL_IDS: dict[Tuple[str, int], str] = {
+    ("english", 6): "english",
+    ("french", 24): "french_24l",
+    ("german", 6): "german",
+    ("german", 24): "german_24l",
+    ("italian", 6): "italian",
+    ("italian", 24): "italian_24l",
+    ("portuguese", 6): "portuguese",
+    ("portuguese", 24): "portuguese_24l",
+    ("spanish", 6): "spanish",
+    ("spanish", 24): "spanish_24l",
+}
+
+_DEFAULT_LAYERS_BY_LANGUAGE: dict[str, int] = {
+    "english": 6,
+    "french": 24,
+    "german": 24,
+    "italian": 6,
+    "portuguese": 6,
+    "spanish": 24,
+}
 
 _ISO_TO_POCKET_TTS = {
     "en": "english",
@@ -92,3 +114,37 @@ def resolve_language(tag: Optional[str]) -> str:
         return normalize_language_tag(tag)
     except UnsupportedLanguageError:
         return DEFAULT_LANGUAGE
+
+
+def available_layers(language: str) -> List[int]:
+    """Layer variants actually bundled with pocket-tts for a given language."""
+    lang = resolve_language(language)
+    return sorted({layers for (lng, layers) in _POCKET_TTS_MODEL_IDS if lng == lang})
+
+
+def default_layers(language: str) -> int:
+    """Upstream-recommended layer count for a language."""
+    lang = resolve_language(language)
+    return _DEFAULT_LAYERS_BY_LANGUAGE.get(lang, 6)
+
+
+def resolve_layers(language: str, layers: Optional[int]) -> int:
+    """Coerce a requested layer count to one that pocket-tts supports.
+
+    If `layers` is None or unavailable, falls back to the language's default.
+    """
+    lang = resolve_language(language)
+    options = available_layers(lang)
+    if layers in options:
+        return int(layers)
+    return default_layers(lang)
+
+
+def resolve_model_id(language: str, layers: Optional[int] = None) -> str:
+    """Return the pocket-tts YAML stem for a (language, layers) pair."""
+    lang = resolve_language(language)
+    lay = resolve_layers(lang, layers)
+    model_id = _POCKET_TTS_MODEL_IDS.get((lang, lay))
+    if model_id is None:
+        model_id = _POCKET_TTS_MODEL_IDS[(lang, default_layers(lang))]
+    return model_id

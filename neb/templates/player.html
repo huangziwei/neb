@@ -622,6 +622,30 @@
         margin-bottom: 12px;
       }
 
+      .model-config {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px dashed var(--line);
+      }
+
+      .tts-panel.collapsed .model-config {
+        display: none;
+      }
+
+      .model-config-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .model-config .tts-field select {
+        width: auto;
+      }
+
       .tts-field label {
         display: block;
         font-size: 12px;
@@ -2012,6 +2036,18 @@
               <button class="tts-toggle" id="ttsToggle">Collapse</button>
             </div>
           </div>
+          <div class="model-config" id="modelConfig" hidden>
+            <div class="model-config-row">
+              <div class="tts-field">
+                <label for="modelLanguage">Language</label>
+                <select id="modelLanguage"></select>
+              </div>
+              <div class="tts-field" id="modelLayersField">
+                <label for="modelLayers">Layers</label>
+                <select id="modelLayers"></select>
+              </div>
+            </div>
+          </div>
           <div class="tts-grid">
             <div class="tts-field">
               <div class="voice-groups" id="voiceGroup">
@@ -2425,6 +2461,10 @@
       const bookMeta = document.getElementById("bookMeta");
       const bookStatus = document.getElementById("bookStatus");
       const ttsLanguageBadge = document.getElementById("ttsLanguageBadge");
+      const modelConfig = document.getElementById("modelConfig");
+      const modelLanguage = document.getElementById("modelLanguage");
+      const modelLayersField = document.getElementById("modelLayersField");
+      const modelLayers = document.getElementById("modelLayers");
       const themeToggle = document.getElementById("themeToggle");
       const coverLarge = document.getElementById("coverLarge");
       const editToggle = document.getElementById("editToggle");
@@ -3908,6 +3948,102 @@
         }
       }
 
+      function renderModelConfig() {
+        if (!modelConfig) {
+          return;
+        }
+        const book = state.book;
+        if (!book || !book.model_config) {
+          modelConfig.hidden = true;
+          return;
+        }
+        modelConfig.hidden = false;
+        const config = book.model_config;
+        const options = book.model_config_options || {};
+        const languages = Array.isArray(options.languages) ? options.languages : [];
+        const layersOptions = Array.isArray(options.layers) ? options.layers : [];
+        const displayNames = options.language_display_names || {};
+
+        modelLanguage.innerHTML = "";
+        languages.forEach((lang) => {
+          const opt = document.createElement("option");
+          opt.value = lang;
+          opt.textContent = displayNames[lang] || lang;
+          if (lang === config.language) {
+            opt.selected = true;
+          }
+          modelLanguage.appendChild(opt);
+        });
+
+        modelLayers.innerHTML = "";
+        layersOptions.forEach((count) => {
+          const opt = document.createElement("option");
+          opt.value = String(count);
+          opt.textContent = `${count}`;
+          if (Number(count) === Number(config.layers)) {
+            opt.selected = true;
+          }
+          modelLayers.appendChild(opt);
+        });
+        modelLayersField.hidden = layersOptions.length <= 1;
+      }
+
+      async function saveModelConfig(patch) {
+        if (!state.book) {
+          return false;
+        }
+        const payload = {
+          language: patch.language ?? state.book.model_config?.language ?? null,
+          layers: patch.layers ?? state.book.model_config?.layers ?? null,
+        };
+        try {
+          const data = await fetchJson(
+            `/api/books/${encodeURIComponent(state.book.id)}/model-config`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            }
+          );
+          if (data && data.config) {
+            state.book.model_config = data.config;
+            state.book.model_config_options = data.options || state.book.model_config_options;
+            state.book.language = data.config.language;
+            const displayMap =
+              (state.book.model_config_options || {}).language_display_names || {};
+            state.book.language_display =
+              displayMap[data.config.language] || data.config.language;
+            renderLanguageBadge(state.book.language_display || "");
+            if (data.cache_cleared) {
+              state.book.manifest_model = {
+                language: null,
+                layers: null,
+              };
+            }
+          }
+          renderModelConfig();
+          return true;
+        } catch (err) {
+          console.warn("Failed to save model config.", err);
+          renderModelConfig();
+          return false;
+        }
+      }
+
+      if (modelLanguage) {
+        modelLanguage.addEventListener("change", () => {
+          void saveModelConfig({ language: modelLanguage.value });
+        });
+      }
+      if (modelLayers) {
+        modelLayers.addEventListener("change", () => {
+          const value = parseInt(modelLayers.value, 10);
+          void saveModelConfig({
+            layers: Number.isFinite(value) ? value : null,
+          });
+        });
+      }
+
       function updateAdvancedMode(persist = true) {
         advancedPanel.classList.toggle("open", !!state.advancedMode);
         advancedToggle.textContent = "Multi-Voices";
@@ -4202,6 +4338,7 @@
         bookTitle.textContent = "Select a book";
         bookMeta.textContent = "No book loaded.";
         renderLanguageBadge("");
+        renderModelConfig();
         bookStatus.textContent = "";
         coverLarge.innerHTML = "";
         coverLarge.style.removeProperty("--cover-image-bg");
@@ -4552,6 +4689,7 @@
           ? "Audio manifest loaded."
           : "Waiting for audio.";
         renderLanguageBadge(state.book.language_display || "");
+        renderModelConfig();
         coverLarge.style.removeProperty("--cover-image-bg");
         coverLarge.innerHTML = renderCover(state.book, "large");
         const coverImg = coverLarge.querySelector("img");

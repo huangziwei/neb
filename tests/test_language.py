@@ -59,3 +59,59 @@ def test_resolve_language_falls_back_for_unsupported() -> None:
     assert language.resolve_language("ja") == "english"
     assert language.resolve_language(None) == "english"
     assert language.resolve_language("") == "english"
+
+
+def test_available_layers_for_each_language() -> None:
+    assert language.available_layers("english") == [6]
+    assert language.available_layers("french") == [24]
+    assert language.available_layers("german") == [6, 24]
+    assert language.available_layers("italian") == [6, 24]
+    assert language.available_layers("portuguese") == [6, 24]
+    assert language.available_layers("spanish") == [6, 24]
+
+
+def test_available_layers_accepts_iso_tag() -> None:
+    assert language.available_layers("de-DE") == [6, 24]
+    assert language.available_layers("fr-CA") == [24]
+
+
+def test_default_layers_matches_upstream_recommendations() -> None:
+    assert language.default_layers("english") == 6
+    assert language.default_layers("french") == 24
+    assert language.default_layers("german") == 24
+    assert language.default_layers("italian") == 6
+    assert language.default_layers("portuguese") == 6
+    assert language.default_layers("spanish") == 24
+
+
+def test_resolve_layers_accepts_supported_values() -> None:
+    assert language.resolve_layers("german", 6) == 6
+    assert language.resolve_layers("german", 24) == 24
+    assert language.resolve_layers("italian", 6) == 6
+    assert language.resolve_layers("italian", 24) == 24
+
+
+def test_resolve_layers_falls_back_when_unavailable() -> None:
+    assert language.resolve_layers("english", 24) == 6
+    assert language.resolve_layers("french", 6) == 24
+    assert language.resolve_layers("german", None) == 24
+    assert language.resolve_layers("english", 99) == 6
+
+
+def test_resolve_model_id_for_known_pairs() -> None:
+    assert language.resolve_model_id("english", 6) == "english"
+    assert language.resolve_model_id("german", 6) == "german"
+    assert language.resolve_model_id("german", 24) == "german_24l"
+    assert language.resolve_model_id("french", 24) == "french_24l"
+    assert language.resolve_model_id("spanish", 24) == "spanish_24l"
+
+
+def test_resolve_model_id_falls_back_to_default_layers() -> None:
+    assert language.resolve_model_id("english", 24) == "english"
+    assert language.resolve_model_id("french", 6) == "french_24l"
+    assert language.resolve_model_id("german", None) == "german_24l"
+
+
+def test_resolve_model_id_accepts_iso_tag() -> None:
+    assert language.resolve_model_id("de-DE", 6) == "german"
+    assert language.resolve_model_id("pt-BR", 24) == "portuguese_24l"

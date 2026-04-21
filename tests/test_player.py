@@ -423,3 +423,179 @@ def test_reading_overrides_save_and_get(tmp_path: Path) -> None:
             "case_sensitive": False,
         },
     ]
+
+
+def _make_book_with_language(root_dir: Path, book_id: str, lang_tag: str) -> Path:
+    book_dir = root_dir / book_id
+    (book_dir / "clean").mkdir(parents=True, exist_ok=True)
+    (book_dir / "clean" / "toc.json").write_text(
+        json.dumps(
+            {
+                "metadata": {"title": "Book", "language": lang_tag},
+                "chapters": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return book_dir
+
+
+def test_model_config_defaults_from_toc_language(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.get("/api/books/book-de/model-config")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["config"]["language"] == "german"
+    assert body["config"]["layers"] == 24
+    assert body["options"]["layers"] == [6, 24]
+    assert "german" in body["options"]["languages"]
+    assert body["options"]["language_display_names"]["german"] == "German"
+    assert not (book_dir / "model-config.json").exists()
+
+
+def test_model_config_persists_overrides(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/books/book-de/model-config",
+        json={"language": "german", "layers": 6},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["config"]["language"] == "german"
+    assert body["config"]["layers"] == 6
+
+    stored = json.loads((book_dir / "model-config.json").read_text(encoding="utf-8"))
+    assert stored == {"language": "german", "layers": 6}
+
+    reload = client.get("/api/books/book-de/model-config")
+    assert reload.json()["config"] == body["config"]
+
+
+def test_model_config_coerces_unsupported_layers(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    _make_book_with_language(root_dir, "book-en", "en")
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/books/book-en/model-config",
+        json={"layers": 24},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["config"]["layers"] == 6
+
+
+def test_model_config_hides_single_layer_for_french(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    _make_book_with_language(root_dir, "book-fr", "fr-CA")
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.get("/api/books/book-fr/model-config")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["config"]["language"] == "french"
+    assert body["config"]["layers"] == 24
+    assert body["options"]["layers"] == [24]
+
+
+def test_model_config_clears_cache_when_config_differs(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    tts_dir = book_dir / "tts"
+    seg_dir = tts_dir / "segments"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    (seg_dir / "dummy.wav").write_bytes(b"x")
+    manifest_path = tts_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "voice": "alba",
+                "language": "german",
+                "layers": 24,
+                "chapters": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/books/book-de/model-config",
+        json={"language": "german", "layers": 6},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cache_cleared"] is True
+    assert not seg_dir.exists()
+    assert not manifest_path.exists()
+
+
+def test_model_config_preserves_cache_when_unchanged(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    tts_dir = book_dir / "tts"
+    seg_dir = tts_dir / "segments"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    (seg_dir / "dummy.wav").write_bytes(b"x")
+    manifest_path = tts_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "voice": "alba",
+                "language": "german",
+                "layers": 24,
+                "chapters": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/books/book-de/model-config",
+        json={"language": "german", "layers": 24},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["cache_cleared"] is False
+    assert seg_dir.exists()
+    assert manifest_path.exists()
+
+
+def test_book_details_surfaces_model_config_and_manifest_model(tmp_path: Path) -> None:
+    repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    tts_dir = book_dir / "tts"
+    tts_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "voice": "alba",
+        "pad_ms": 300,
+        "language": "german",
+        "layers": 24,
+        "chapters": [],
+    }
+    (tts_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False), encoding="utf-8"
+    )
+
+    details = player._book_details(book_dir, repo_root)
+    book = details["book"]
+    assert book["language"] == "german"
+    assert book["language_display"] == "German"
+    assert book["model_config"]["language"] == "german"
+    assert book["model_config"]["layers"] == 24
+    assert book["manifest_model"] == {
+        "language": "german",
+        "layers": 24,
+    }
+    assert book["model_config_options"]["layers"] == [6, 24]
