@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import epub as epub_util
+from . import language as language_util
 from . import merge as merge_util
 from . import player as player_util
 from . import sanitize as sanitize_util
@@ -48,7 +49,7 @@ def _ingest_text(input_path: Path, out_dir: Path, raw_dir: Path) -> int:
     metadata = {
         "title": book_title,
         "authors": [],
-        "language": "",
+        "language": language_util.DEFAULT_LANGUAGE,
         "dates": [],
         "year": "",
         "cover": None,
@@ -73,6 +74,13 @@ def _ingest_text(input_path: Path, out_dir: Path, raw_dir: Path) -> int:
 def _ingest_epub(input_path: Path, out_dir: Path, raw_dir: Path) -> int:
     book = epub_util.read_epub(input_path)
     metadata = epub_util.extract_metadata(book)
+    try:
+        metadata["language"] = language_util.normalize_language_tag(
+            metadata.get("language")
+        )
+    except language_util.UnsupportedLanguageError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
     cover = epub_util.extract_cover_image(book)
     if cover:
         cover_path = _write_cover_image(cover, out_dir)

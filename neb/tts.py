@@ -26,6 +26,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from . import language as language_util
 from .text import read_clean_text
 from .voice import DEFAULT_VOICE, resolve_voice_prompt
 
@@ -41,6 +42,21 @@ _TTS_WARNING_CONTEXT = contextvars.ContextVar("_TTS_WARNING_CONTEXT", default=No
 _TTS_WARNING_FILTER_INSTALLED = False
 _TTS_WARNING_CONTEXT_LOCK = threading.Lock()
 _TTS_WARNING_CONTEXT_STACK: List[dict[str, Any]] = []
+
+_TTS_MODEL_CACHE: Dict[str, Any] = {}
+_TTS_MODEL_CACHE_LOCK = threading.Lock()
+
+
+def _load_tts_model(language: Optional[str]) -> Any:
+    """Return a cached pocket-tts model for the given language."""
+    _require_tts()
+    lang = language_util.normalize_language_tag(language)
+    with _TTS_MODEL_CACHE_LOCK:
+        model = _TTS_MODEL_CACHE.get(lang)
+        if model is None:
+            model = TTSModel.load_model(language=lang)
+            _TTS_MODEL_CACHE[lang] = model
+        return model
 
 
 @contextmanager
@@ -2129,7 +2145,9 @@ def prepare_manifest(
     pad_ms: int,
     chunk_mode: str,
     rechunk: bool,
+    language: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[List[str]], int]:
+    language = language_util.normalize_language_tag(language)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.json"
     chunk_root = out_dir / "chunks"
@@ -2230,6 +2248,7 @@ def prepare_manifest(
         manifest = {
             "created_unix": int(time.time()),
             "voice": voice,
+            "language": language,
             "max_chars": int(max_chars),
             "pad_ms": int(pad_ms),
             "chunk_mode": chunk_mode,
@@ -2238,6 +2257,7 @@ def prepare_manifest(
         atomic_write_json(manifest_path, manifest)
 
     manifest["voice"] = voice
+    manifest["language"] = language
     manifest["max_chars"] = int(max_chars)
     manifest["pad_ms"] = int(manifest.get("pad_ms", pad_ms))
     manifest["chunk_mode"] = chunk_mode
@@ -2302,6 +2322,7 @@ def chunk_book(
             voice = DEFAULT_VOICE
 
     chapters = load_book_chapters(book_dir)
+    language = _resolve_book_language(book_dir)
     manifest, _chapter_chunks, _pad_ms = prepare_manifest(
         chapters=chapters,
         out_dir=out_dir,
@@ -2310,8 +2331,26 @@ def chunk_book(
         pad_ms=pad_ms,
         chunk_mode=chunk_mode,
         rechunk=rechunk,
+        language=language,
     )
     return manifest
+
+
+def _resolve_book_language(book_dir: Path) -> str:
+    """Read language from <book_dir>/clean/toc.json; fallback to default."""
+    toc_path = book_dir / "clean" / "toc.json"
+    if not toc_path.exists():
+        return language_util.DEFAULT_LANGUAGE
+    try:
+        toc = json.loads(toc_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return language_util.DEFAULT_LANGUAGE
+    metadata = toc.get("metadata") if isinstance(toc, dict) else None
+    raw = metadata.get("language") if isinstance(metadata, dict) else None
+    try:
+        return language_util.normalize_language_tag(raw)
+    except language_util.UnsupportedLanguageError:
+        return language_util.DEFAULT_LANGUAGE
 
 
 def synthesize(
@@ -2327,8 +2366,10 @@ def synthesize(
     voice_map_path: Optional[Path] = None,
     reading_overrides_dir: Optional[Path] = None,
     base_dir: Optional[Path] = None,
+    language: Optional[str] = None,
 ) -> int:
     _require_tts()
+    language = language_util.normalize_language_tag(language)
 
     if base_dir is None:
         base_dir = Path.cwd()
@@ -2376,6 +2417,7 @@ def synthesize(
             pad_ms=pad_ms,
             chunk_mode=chunk_mode,
             rechunk=rechunk,
+            language=language,
         )
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
@@ -2424,7 +2466,7 @@ def synthesize(
 
     write_status(out_dir, "cloning", "Preparing voice")
 
-    tts_model = TTSModel.load_model()
+    tts_model = _load_tts_model(language)
     _install_tts_warning_filter()
     sample_rate = int(tts_model.sample_rate)
     if manifest.get("sample_rate") != sample_rate:
@@ -2709,7 +2751,7 @@ def synthesize_chunk(
         voice_id = _normalize_voice_id(entry.get("voice"), default_voice)
 
     voice_prompt = resolve_voice_prompt(voice_id, base_dir=base_dir)
-    tts_model = TTSModel.load_model()
+    tts_model = _load_tts_model(manifest.get("language"))
     _install_tts_warning_filter()
     sample_rate = int(tts_model.sample_rate)
     if manifest.get("sample_rate") != sample_rate:
@@ -2793,6 +2835,7 @@ def synthesize_text(
     rechunk: bool = False,
     voice_map_path: Optional[Path] = None,
     base_dir: Optional[Path] = None,
+    language: Optional[str] = None,
 ) -> int:
     chapters = load_text_chapters(text_path)
     return synthesize(
@@ -2806,6 +2849,7 @@ def synthesize_text(
         voice_map_path=voice_map_path,
         reading_overrides_dir=None,
         base_dir=base_dir,
+        language=language,
     )
 
 
@@ -2839,6 +2883,7 @@ def synthesize_book(
         voice_map_path=voice_map_path,
         reading_overrides_dir=book_dir,
         base_dir=base_dir,
+        language=_resolve_book_language(book_dir),
     )
 
 
@@ -2900,6 +2945,7 @@ def synthesize_book_sample(
         voice_map_path=voice_map_path,
         reading_overrides_dir=book_dir,
         base_dir=base_dir,
+        language=_resolve_book_language(book_dir),
     )
 
 

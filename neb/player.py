@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from . import epub as epub_util
+from . import language as language_util
 from . import sanitize
 from . import tts as tts_util
 from .text import guess_title_from_path, read_clean_text
@@ -531,6 +532,7 @@ def _book_summary(book_dir: Path) -> dict:
         and isinstance(furthest, int)
         and furthest >= total_chunks - 1
     )
+    language = metadata.get("language") or language_util.DEFAULT_LANGUAGE
     return {
         "id": book_dir.name,
         "title": metadata.get("title") or book_dir.name,
@@ -544,6 +546,8 @@ def _book_summary(book_dir: Path) -> dict:
         "chapter_count": len(chapters) if isinstance(chapters, list) else 0,
         "source_type": source_type,
         "source_origin": source_origin,
+        "language": language,
+        "language_display": language_util.display_name(language),
     }
 
 
@@ -719,6 +723,14 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
                 }
             )
 
+    manifest_language = (
+        manifest.get("language") if isinstance(manifest, dict) else None
+    )
+    language = (
+        manifest_language
+        or metadata.get("language")
+        or language_util.DEFAULT_LANGUAGE
+    )
     return {
         "book": {
             "id": book_dir.name,
@@ -733,6 +745,8 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
             "last_voice": last_voice,
             "source_type": source_type,
             "source_origin": source_origin,
+            "language": language,
+            "language_display": language_util.display_name(language),
         },
         "chapters": chapters,
         "audio_base": f"/audio/{book_dir.name}/tts/segments",

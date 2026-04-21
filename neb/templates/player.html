@@ -594,11 +594,25 @@
       }
 
       .tts-panel h3 {
-        margin-bottom: 6px; 
+        margin-bottom: 6px;
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 1px;
         color: var(--muted);
+      }
+
+      .tts-language-badge {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        background: var(--panel-soft, rgba(127, 127, 127, 0.18));
+        color: var(--text, inherit);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        text-transform: none;
+        vertical-align: middle;
       }
 
       .tts-grid {
@@ -1992,7 +2006,7 @@
         </div>
         <section class="tts-panel" id="ttsPanel">
           <div class="tts-header">
-            <h3>Text To Speech</h3>
+            <h3>Text To Speech <span class="tts-language-badge" id="ttsLanguageBadge" hidden></span></h3>
             <div class="tts-header-actions">
               <button class="tts-toggle" id="advancedToggle" type="button">Multi-Voices</button>
               <button class="tts-toggle" id="ttsToggle">Collapse</button>
@@ -2410,6 +2424,7 @@
       const bookTitle = document.getElementById("bookTitle");
       const bookMeta = document.getElementById("bookMeta");
       const bookStatus = document.getElementById("bookStatus");
+      const ttsLanguageBadge = document.getElementById("ttsLanguageBadge");
       const themeToggle = document.getElementById("themeToggle");
       const coverLarge = document.getElementById("coverLarge");
       const editToggle = document.getElementById("editToggle");
@@ -4186,6 +4201,7 @@
         resetAudioPlayers();
         bookTitle.textContent = "Select a book";
         bookMeta.textContent = "No book loaded.";
+        renderLanguageBadge("");
         bookStatus.textContent = "";
         coverLarge.innerHTML = "";
         coverLarge.style.removeProperty("--cover-image-bg");
@@ -4535,6 +4551,7 @@
         bookStatus.textContent = state.book.has_audio
           ? "Audio manifest loaded."
           : "Waiting for audio.";
+        renderLanguageBadge(state.book.language_display || "");
         coverLarge.style.removeProperty("--cover-image-bg");
         coverLarge.innerHTML = renderCover(state.book, "large");
         const coverImg = coverLarge.querySelector("img");
@@ -4548,6 +4565,20 @@
               { once: true }
             );
           }
+        }
+      }
+
+      function renderLanguageBadge(label) {
+        if (!ttsLanguageBadge) {
+          return;
+        }
+        const text = typeof label === "string" ? label.trim() : "";
+        if (text) {
+          ttsLanguageBadge.textContent = text;
+          ttsLanguageBadge.hidden = false;
+        } else {
+          ttsLanguageBadge.textContent = "";
+          ttsLanguageBadge.hidden = true;
         }
       }
 

@@ -792,3 +792,62 @@ def test_prepare_manifest_backfills_chapter_boundary_pause_for_existing_manifest
     )
 
     assert manifest["chapters"][0]["pause_multipliers"][-1] == 5
+
+
+def test_prepare_manifest_stores_language_default(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Hello world",
+        path=None,
+    )
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=tmp_path / "out",
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+    )
+    assert manifest["language"] == "english"
+
+
+def test_prepare_manifest_stores_explicit_language(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Bonjour le monde",
+        path=None,
+    )
+    out_dir = tmp_path / "out"
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=out_dir,
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+        language="fr",
+    )
+    assert manifest["language"] == "french"
+    round_trip = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert round_trip["language"] == "french"
+
+
+def test_resolve_book_language_reads_toc_metadata(tmp_path: Path) -> None:
+    book_dir = tmp_path / "book"
+    clean_dir = book_dir / "clean"
+    clean_dir.mkdir(parents=True)
+    (clean_dir / "toc.json").write_text(
+        json.dumps({"metadata": {"language": "de-DE"}, "chapters": []}),
+        encoding="utf-8",
+    )
+    assert tts._resolve_book_language(book_dir) == "german"
+
+
+def test_resolve_book_language_falls_back_on_missing_toc(tmp_path: Path) -> None:
+    assert tts._resolve_book_language(tmp_path / "nowhere") == "english"
