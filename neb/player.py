@@ -1370,8 +1370,7 @@ def create_app(root_dir: Path) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:
-        context = {"request": request, "root_dir": str(root_dir)}
-        return templates.TemplateResponse("player.html", context)
+        return templates.TemplateResponse(request, "player.html", {"root_dir": str(root_dir)})
 
     @app.get("/api/books")
     def list_books() -> JSONResponse:
