@@ -2347,10 +2347,7 @@ def _resolve_book_language(book_dir: Path) -> str:
         return language_util.DEFAULT_LANGUAGE
     metadata = toc.get("metadata") if isinstance(toc, dict) else None
     raw = metadata.get("language") if isinstance(metadata, dict) else None
-    try:
-        return language_util.normalize_language_tag(raw)
-    except language_util.UnsupportedLanguageError:
-        return language_util.DEFAULT_LANGUAGE
+    return language_util.resolve_language(raw)
 
 
 def synthesize(

@@ -80,3 +80,15 @@ def display_name(pocket_tts_language: Optional[str]) -> str:
     return _DISPLAY_NAMES.get(
         pocket_tts_language, str(pocket_tts_language).capitalize()
     )
+
+
+def resolve_language(tag: Optional[str]) -> str:
+    """Normalize a raw language tag, falling back to DEFAULT_LANGUAGE if unsupported.
+
+    Use this in display paths (e.g. player) where an unknown code should
+    degrade gracefully rather than raise.
+    """
+    try:
+        return normalize_language_tag(tag)
+    except UnsupportedLanguageError:
+        return DEFAULT_LANGUAGE

@@ -532,7 +532,7 @@ def _book_summary(book_dir: Path) -> dict:
         and isinstance(furthest, int)
         and furthest >= total_chunks - 1
     )
-    language = metadata.get("language") or language_util.DEFAULT_LANGUAGE
+    language = language_util.resolve_language(metadata.get("language"))
     return {
         "id": book_dir.name,
         "title": metadata.get("title") or book_dir.name,
@@ -726,10 +726,8 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
     manifest_language = (
         manifest.get("language") if isinstance(manifest, dict) else None
     )
-    language = (
-        manifest_language
-        or metadata.get("language")
-        or language_util.DEFAULT_LANGUAGE
+    language = language_util.resolve_language(
+        manifest_language or metadata.get("language")
     )
     return {
         "book": {

@@ -47,3 +47,15 @@ def test_display_name_capitalizes() -> None:
     assert language.display_name("english") == "English"
     assert language.display_name("") == ""
     assert language.display_name(None) == ""
+
+
+def test_resolve_language_normalizes_locale_tags() -> None:
+    assert language.resolve_language("en-GB") == "english"
+    assert language.resolve_language("de-DE") == "german"
+    assert language.resolve_language("fr_CA") == "french"
+
+
+def test_resolve_language_falls_back_for_unsupported() -> None:
+    assert language.resolve_language("ja") == "english"
+    assert language.resolve_language(None) == "english"
+    assert language.resolve_language("") == "english"
