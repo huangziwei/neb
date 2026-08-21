@@ -314,3 +314,98 @@ def test_normalize_all_caps_pali_sanskrit_title_case() -> None:
     text = "SATIPAṬṬHĀNA"
     expected = "Satipaṭṭhāna"
     assert sanitize.normalize_all_caps(text) == expected
+
+
+# ---------------------------------------------------------------------------
+# A single stylized opening word vs. an acronym
+# ---------------------------------------------------------------------------
+#
+# By shape the two are identical — one capitalized word starting a paragraph
+# that continues in normal case. What separates them is how the rest of the book
+# writes that word, so these tests always supply a book-wide tally.
+
+def _stats(*chapters: str) -> sanitize.CaseStats:
+    return sanitize.build_case_stats(list(chapters))
+
+
+def test_single_stylized_opening_word_is_downcased() -> None:
+    opening = "ALTHOUGH the weather was poor, we set out.\n\nShe did not answer."
+    stats = _stats(
+        opening,
+        "Although we were late, the road was clear.",
+        "He stayed although he was warned.",
+        "Although tired, she kept walking.",
+    )
+    result = sanitize.normalize_small_caps(opening, case_stats=stats)
+    assert result.startswith("Although the weather was poor")
+
+
+def test_single_opening_acronym_is_preserved() -> None:
+    # The book never writes this word with lowercase letters.
+    opening = "NASA confirmed the launch window.\n\nEngineers waited."
+    stats = _stats(opening, "NASA later revised it.", "The NASA team disagreed.")
+    assert sanitize.normalize_small_caps(opening, case_stats=stats) == opening
+
+
+def test_single_opening_word_used_both_ways_is_preserved() -> None:
+    # "US" is both a pronoun and a country here, so the capitals are not stylistic.
+    opening = "US forces landed at dawn.\n\nThe city was quiet."
+    stats = _stats(
+        opening,
+        "The US president spoke. US policy shifted again.",
+        "He told us the US would act. Give us the US position.",
+    )
+    assert sanitize.normalize_small_caps(opening, case_stats=stats) == opening
+
+
+def test_single_opening_word_needs_enough_lowercase_evidence() -> None:
+    # One stray sighting is not proof; without a repeated opening style the word
+    # has to be well attested in normal case.
+    opening = "TRAMONTANE winds crossed the ridge.\n\nThe valley stayed still."
+    stats = _stats(opening, "A tramontane gust.")
+    assert sanitize.normalize_small_caps(opening, case_stats=stats) == opening
+
+
+def test_repeated_opening_style_lowers_the_evidence_bar() -> None:
+    # Drop caps are a house style and repeat; an acronym opening a chapter does
+    # not. Once the pattern recurs, a single lowercase sighting is enough.
+    chapters = [
+        "PERHAPS she was right about it.\n\nA quiet room.",
+        "SUDDENLY the door swung open.\n\nNobody moved.",
+        "SOMEWHERE a bell was ringing.\n\nThe hall stayed dark.",
+        "It happened perhaps. It ended suddenly. It began somewhere.",
+    ]
+    stats = sanitize.build_case_stats(chapters)
+    assert stats.styled_openings >= 3
+    assert sanitize.normalize_small_caps(
+        chapters[0], case_stats=stats
+    ).startswith("Perhaps she was right")
+
+
+def test_short_opening_word_is_always_preserved() -> None:
+    # Two- and three-letter capitals are acronym territory whatever the counts.
+    opening = "EU regulators opened a case.\n\nBrussels stayed silent."
+    stats = _stats(opening, "the eu and the eu and the eu and the eu")
+    assert sanitize.normalize_small_caps(opening, case_stats=stats) == opening
+
+
+def test_case_stats_counts_both_forms() -> None:
+    stats = sanitize.build_case_stats(["NASA and nasa and NASA", "nasa"])
+    assert stats.capitals_counts["nasa"] == 2
+    assert stats.lowercase_counts["nasa"] == 2
+
+
+def test_book_wide_evidence_beats_chapter_only_evidence() -> None:
+    # The lowercase form lives in other chapters, which a per-chapter tally
+    # cannot see — this is why the tally is built across the whole book.
+    opening = "ALTHOUGH the weather was poor, we set out.\n\nShe did not answer."
+    others = [
+        "Although we were late, the road was clear.",
+        "He stayed although he was warned.",
+        "Although tired, she kept walking.",
+    ]
+    assert sanitize.normalize_small_caps(opening) == opening
+    with_book = sanitize.normalize_small_caps(
+        opening, case_stats=sanitize.build_case_stats([opening, *others])
+    )
+    assert with_book.startswith("Although the weather was poor")

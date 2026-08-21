@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 # Voice cloning is wav-only: the narrator is always a local `.wav` clone source
-# (under voices/) or an `hf://…/foo.wav` URL. pocket-tts's hosted stock voices
-# have been removed — there are no built-in named voices.
+# (under voices/) or an `hf://…/foo.wav` URL. There are no built-in named voices.
 DEFAULT_VOICE = "voices/ray.wav"
 
 

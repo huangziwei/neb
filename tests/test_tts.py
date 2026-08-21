@@ -174,7 +174,7 @@ def test_prepare_tts_text_normalizes_large_numbers() -> None:
 
 
 def test_prepare_tts_text_normalizes_currency_symbols_corpus_examples() -> None:
-    # Corpus-derived samples from `out/**/chapters/*.txt` and `out/**/tts/*.txt`.
+    # Samples taken from real book text.
     assert neb_text.prepare_tts_text("That'll be $3.85.") == "That'll be three point eight five dollars."
     assert (
         neb_text.prepare_tts_text("He can buy $50.00 worth of groceries for $6.98.")

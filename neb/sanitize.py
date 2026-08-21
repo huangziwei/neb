@@ -501,11 +501,12 @@ def _normalize_small_caps_paragraph(paragraph: str, stats: CaseStats) -> str:
     if not run:
         return paragraph
 
-    if len(run) < _SMALL_CAPS_MIN_WORDS:
-        # A lone capitalized word is ambiguous by shape alone, so it is downcased
-        # only when the book's own usage says it is normally a lowercase word.
-        if not stats.is_stylized_opening(run[0].group(0)):
-            return paragraph
+    # A lone capitalized word is ambiguous by shape alone, so it is downcased
+    # only when the book's own usage says it is normally a lowercase word.
+    if len(run) < _SMALL_CAPS_MIN_WORDS and not stats.is_stylized_opening(
+        run[0].group(0)
+    ):
+        return paragraph
 
     if not _run_is_followed_by_lowercase(run, matches):
         return paragraph

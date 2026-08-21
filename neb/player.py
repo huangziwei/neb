@@ -1797,7 +1797,7 @@ def create_app(root_dir: Path) -> FastAPI:
                     ):
                         entry["language"] = language
                 local.append(entry)
-        # Built-in (pocket-tts hosted) voices were removed: cloning is wav-only.
+        # There are no built-in named voices; every narrator is a wav clone.
         languages = sorted(language_util.POCKET_TTS_LANGUAGES)
         return _no_store(
             {

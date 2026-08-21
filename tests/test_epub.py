@@ -123,8 +123,8 @@ def test_html_to_text_keeps_chapter_ids_when_backrefs_include_numeric_crossrefs(
         b"</div>"
         b"</body></html>"
     )
-    # Regression guard: chapter IDs must not be removed even if mistakenly listed
-    # as backrefs, while real note markers should still be stripped.
+    # Chapter IDs must survive even when listed as backrefs, while real note
+    # markers are still stripped.
     text = epub_util.html_to_text(
         html,
         footnote_index={"note_ids": {"fn1"}, "backref_ids": {"ch01", "fn1"}},

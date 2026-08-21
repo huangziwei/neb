@@ -824,9 +824,9 @@ def _require_tts() -> None:
 
 
 def tensor_to_int16(audio: torch.Tensor) -> torch.Tensor:
-    """
-    Pocket-TTS README says returned audio is PCM data in a 1D torch tensor.
-    Make this robust to float or int tensors.
+    """Convert pocket-tts output — PCM in a 1D tensor — to int16.
+
+    The tensor arrives as either float or int, so both are handled.
     """
     _require_tts()
     a = audio.detach().cpu().flatten().contiguous()

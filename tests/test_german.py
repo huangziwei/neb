@@ -322,14 +322,10 @@ def test_prepare_tts_text_german_dispatches_to_german_normalizer() -> None:
 
 
 def test_prepare_tts_text_german_leaves_abbrevs_dotted_if_unknown() -> None:
-    # English-specific normalizations (Mr./Prof./Dr. expansion via English rules)
-    # should not apply when language=german. E.g. the German module does not
-    # expand "etc." the same way as the English one — but "etc." is in the
-    # German abbrev list too. Use a distinctly English-only rule:
+    # German abbreviates a number as "Nr.", not "No.", so the English form is
+    # left untouched under the German profile.
     result = prepare_tts_text("She said No. 5.", language="german")
-    # German has its own Nr. abbreviation but not No. — so "No." stays dotted
-    # (modulo common.py's ellipsis/bracket handling).
-    assert "Nummer" not in result  # English "No." is NOT expanded by German normalizer
+    assert "Nummer" not in result
     assert "number" not in result.lower()
 
 

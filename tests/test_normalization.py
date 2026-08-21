@@ -2,7 +2,7 @@
 
 Per-language depth lives in the language test modules; this file covers the
 behaviour every profile is supposed to share, and the smoke coverage for the
-four languages added alongside English and German.
+four languages beyond English and German.
 """
 from __future__ import annotations
 

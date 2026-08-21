@@ -110,7 +110,8 @@ class LanguageProfile:
     # Stem (no trailing dot, lowercase) → expansion, matched case-insensitively
     # with the source capitalization preserved.
     abbrev_expansions: Mapping[str, str] = field(default_factory=dict)
-    # Same, but only when a number or Roman numeral follows: "No. 5" → "number five".
+    # Applied only when a number or Roman numeral follows, and spoken exactly as
+    # written here: "No. 5" → "number five", "Nr. 5" → "Nummer fünf".
     numbered_abbrevs: Mapping[str, str] = field(default_factory=dict)
     # Kept as written but stripped of the dot, so the chunker sees no sentence
     # end: "Mr." → "Mr".
