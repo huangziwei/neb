@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 # Voice cloning is wav-only: the narrator is always a local `.wav` clone source
 # (under voices/) or an `hf://…/foo.wav` URL. pocket-tts's hosted stock voices
@@ -10,7 +9,7 @@ DEFAULT_VOICE = "voices/ray.wav"
 
 
 def resolve_voice_prompt(
-    voice: Optional[str], base_dir: Optional[Path] = None
+    voice: str | None, base_dir: Path | None = None
 ) -> str:
     if not voice:
         voice = DEFAULT_VOICE

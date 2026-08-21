@@ -5,7 +5,6 @@ import pytest
 
 from neb.text import german, prepare_tts_text
 
-
 # ---------------------------------------------------------------------------
 # _int_to_words — cardinals
 # ---------------------------------------------------------------------------
@@ -109,7 +108,9 @@ def test_year_to_words_out_of_range_falls_back() -> None:
         (20, "zwanzigste"),
         (21, "einundzwanzigste"),
         (23, "dreiundzwanzigste"),
-        (100, "einhundertste"),
+        (100, "hundertste"),
+        (102, "einhundertzweite"),
+        (110, "einhundertzehnte"),
     ],
 )
 def test_int_to_ordinal_words(value: int, expected: str) -> None:
@@ -165,16 +166,46 @@ def test_bzw_usw_ca_expand() -> None:
 @pytest.mark.parametrize(
     "text, expected",
     [
-        ("Das kostet €50.", "Das kostet 50 Euro."),
-        ("Nur 1€ pro Stück.", "Nur 1 Euro pro Stück."),
-        ("Ungefähr $500 pro Monat.", "Ungefähr 500 Dollar pro Monat."),
-        ("Der Preis war £20.", "Der Preis war 20 Pfund."),
-        ("€1.000 im Jahr.", "1000 Euro im Jahr."),  # dot as thousands separator
-        ("€2,50 kostet", "2,50 Euro kostet"),  # comma as decimal separator
+        ("Das kostet €50.", "Das kostet fünfzig Euro."),
+        # "eins Euro" is wrong; the numeral takes its pre-nominal form.
+        ("Nur 1€ pro Stück.", "Nur ein Euro pro Stück."),
+        ("Ungefähr $500 pro Monat.", "Ungefähr fünfhundert Dollar pro Monat."),
+        ("Der Preis war £20.", "Der Preis war zwanzig Pfund."),
+        # dot as thousands separator
+        ("€1.000 im Jahr.", "eintausend Euro im Jahr."),
+        # comma as decimal separator
+        ("€2,50 kostet", "zwei Komma fünf null Euro kostet"),
     ],
 )
 def test_normalize_currency_symbols(text: str, expected: str) -> None:
     assert german._normalize_currency_symbols(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # A magnitude word belongs between the amount and the currency noun.
+        ("$1 Mrd.", "eine Milliarde Dollar"),
+        ("5 Mio. Euro", "fünf Millionen Euro"),
+        ("€2 Milliarden", "zwei Milliarden Euro"),
+        ("1 Mio.", "eine Million"),
+    ],
+)
+def test_currency_and_scale_word_order(text: str, expected: str) -> None:
+    assert prepare_tts_text(text, language="german") == f"{expected}."
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        # A price is not a year, so it keeps its cardinal reading.
+        ("1500 Euro", "eintausendfünfhundert Euro"),
+        ("1500 Menschen", "eintausendfünfhundert Menschen"),
+        ("im Jahr 1500", "im Jahr fünfzehnhundert"),
+    ],
+)
+def test_quantity_beats_year_reading(text: str, expected: str) -> None:
+    assert prepare_tts_text(text, language="german") == f"{expected}."
 
 
 def test_currency_no_plural_s() -> None:
@@ -258,9 +289,7 @@ def test_normalize_german_lexical_years() -> None:
 
 def test_normalize_german_lexical_currency_and_number() -> None:
     text = "Die Miete beträgt €1.500 pro Monat."
-    # Decimal commas stay with "Komma" if used; here we use a thousands-dot.
-    expected = "Die Miete beträgt 1500 Euro pro Monat."
-    # Note: "1500" then gets converted to "eintausendfünfhundert" by number pass.
+    # A thousands-dot amount is read as a cardinal, not a year.
     result = german.normalize_german_lexical(text)
     assert "Euro" in result
     assert "1500" not in result  # must be spelled out

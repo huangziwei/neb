@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from neb import text as neb_text, tts
+from neb import text as neb_text
+from neb import tts
 
 
 def test_make_chunks_preserves_text() -> None:
@@ -245,7 +246,7 @@ def test_prepare_tts_text_normalizes_all_remaining_digits() -> None:
     text = "Model X2 was released in 2026, ranked 21st, scored +17, ratio 3/4, and ticket 007."
     expected = (
         "Model X two was released in twenty twenty six, ranked twenty first, scored plus seventeen, "
-        "ratio three/four, and ticket zero zero seven."
+        "ratio three quarters, and ticket zero zero seven."
     )
     out = neb_text.prepare_tts_text(text)
     assert out == expected
@@ -420,17 +421,16 @@ def test_tts_warning_filter_adds_chunk_context_for_cross_thread_warning(caplog) 
         "this very often indicates an error."
     )
     caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        with tts._tts_warning_context(
-            chapter_id="0003-foreword",
-            chunk_idx=48,
-            chunk_total=793,
-            sub_idx=1,
-            sub_total=1,
-        ):
-            thread = threading.Thread(target=lambda: logger.warning(message))
-            thread.start()
-            thread.join()
+    with caplog.at_level(logging.WARNING), tts._tts_warning_context(
+        chapter_id="0003-foreword",
+        chunk_idx=48,
+        chunk_total=793,
+        sub_idx=1,
+        sub_total=1,
+    ):
+        thread = threading.Thread(target=lambda: logger.warning(message))
+        thread.start()
+        thread.join()
     assert any(
         "[chapter=0003-foreword chunk=48/793 sub=1/1]" in record.getMessage()
         for record in caplog.records

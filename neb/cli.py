@@ -11,7 +11,6 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 from . import epub as epub_util
 from . import language as language_util
@@ -191,7 +190,7 @@ def _cover_extension(media_type: str, href: str) -> str:
     return ".jpg"
 
 
-def _write_cover_image(cover: dict, out_dir: Path) -> Optional[Path]:
+def _write_cover_image(cover: dict, out_dir: Path) -> Path | None:
     data = cover.get("data")
     if not data:
         return None
@@ -225,7 +224,7 @@ def _download_to(url: str, dest: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
-def _coerce_voice_name(raw: Optional[str], source_name: str) -> str:
+def _coerce_voice_name(raw: str | None, source_name: str) -> str:
     value = raw or source_name
     base = Path(value).name.strip()
     if not base:
@@ -309,7 +308,7 @@ def _clone(args: argparse.Namespace) -> int:
             output_name = _coerce_voice_name(args.name, Path(filename).stem)
             output_path = voices_dir / f"{output_name}.wav"
             cmd = _build_clone_ffmpeg_cmd(input_path, output_path, start, duration)
-            result = subprocess.run(cmd)
+            result = subprocess.run(cmd, check=False)
             if result.returncode != 0:
                 sys.stderr.write("ffmpeg failed to process the audio.\n")
                 return 2
@@ -323,7 +322,7 @@ def _clone(args: argparse.Namespace) -> int:
     output_name = _coerce_voice_name(args.name, input_path.stem)
     output_path = voices_dir / f"{output_name}.wav"
     cmd = _build_clone_ffmpeg_cmd(input_path, output_path, start, duration)
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         sys.stderr.write("ffmpeg failed to process the audio.\n")
         return 2
@@ -457,7 +456,7 @@ def _jsonl_entries(path: Path) -> list[dict]:
     return entries
 
 
-def _as_float(value: object) -> Optional[float]:
+def _as_float(value: object) -> float | None:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -467,21 +466,21 @@ def _as_float(value: object) -> Optional[float]:
     return parsed
 
 
-def _as_int(value: object) -> Optional[int]:
+def _as_int(value: object) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
-def _percentile(sorted_values: list[float], q: float) -> Optional[float]:
+def _percentile(sorted_values: list[float], q: float) -> float | None:
     if not sorted_values:
         return None
     idx = int((len(sorted_values) - 1) * q)
     return sorted_values[idx]
 
 
-def _series_stats(values: list[float]) -> Optional[dict]:
+def _series_stats(values: list[float]) -> dict | None:
     if not values:
         return None
     ordered = sorted(values)
@@ -556,9 +555,7 @@ def _boundary_report_payload(entries: list[dict], min_samples: int = 200) -> dic
     else:
         corrected_stats = _series_stats(corrected_values)
         if corrected_stats:
-            recommendation["recommended_pad_adjust_ms"] = int(
-                round(corrected_stats["p50"])
-            )
+            recommendation["recommended_pad_adjust_ms"] = round(corrected_stats["p50"])
             recommendation["basis"] = "p50(delta_ms + output_latency_ms)"
             recommendation["reason"] = (
                 "Positive means increase pad_ms to make merged M4B pauses closer "

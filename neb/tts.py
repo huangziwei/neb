@@ -14,13 +14,13 @@ import threading
 import time
 import unicodedata
 import wave
-
-import numpy as np
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any
 
+import numpy as np
 from rich.progress import (
     BarColumn,
     Progress,
@@ -31,7 +31,7 @@ from rich.progress import (
 )
 
 from . import language as language_util
-from .text import apply_reading_overrides, prepare_tts_text, read_clean_text
+from .text import prepare_tts_text, read_clean_text
 from .text.common import (
     _CHAPTER_BREAK_PAD_MULTIPLIER,
     _CLAUSE_PUNCT,
@@ -41,7 +41,6 @@ from .text.common import (
     _SENT_PUNCT,
     _TITLE_BREAK_NEWLINES,
     _TITLE_BREAK_PAD_MULTIPLIER,
-    READING_OVERRIDES_FILENAME,
     _load_reading_overrides,
     _merge_reading_overrides,
     _reading_overrides_path,
@@ -64,9 +63,9 @@ except Exception:  # pragma: no cover - optional runtime dependency
 _TTS_WARNING_CONTEXT = contextvars.ContextVar("_TTS_WARNING_CONTEXT", default=None)
 _TTS_WARNING_FILTER_INSTALLED = False
 _TTS_WARNING_CONTEXT_LOCK = threading.Lock()
-_TTS_WARNING_CONTEXT_STACK: List[dict[str, Any]] = []
+_TTS_WARNING_CONTEXT_STACK: list[dict[str, Any]] = []
 
-_TTS_MODEL_CACHE: Dict[Tuple[str, int], Any] = {}
+_TTS_MODEL_CACHE: dict[tuple[str, int], Any] = {}
 _TTS_MODEL_CACHE_LOCK = threading.Lock()
 
 
@@ -116,8 +115,8 @@ def _ensure_hf_token_visible() -> None:
 
 
 def _load_tts_model(
-    language: Optional[str],
-    layers: Optional[int] = None,
+    language: str | None,
+    layers: int | None = None,
 ) -> Any:
     """Return a cached pocket-tts model for (language, layers)."""
     _require_tts()
@@ -138,8 +137,8 @@ def _tts_warning_context(
     chapter_id: str,
     chunk_idx: int,
     chunk_total: int,
-    sub_idx: Optional[int] = None,
-    sub_total: Optional[int] = None,
+    sub_idx: int | None = None,
+    sub_total: int | None = None,
 ) -> Iterator[None]:
     ctx = {
         "chapter_id": chapter_id,
@@ -162,7 +161,7 @@ def _tts_warning_context(
         _TTS_WARNING_CONTEXT.reset(token)
 
 
-def _active_tts_warning_context() -> Optional[dict]:
+def _active_tts_warning_context() -> dict | None:
     ctx = _TTS_WARNING_CONTEXT.get()
     if ctx:
         return ctx
@@ -365,7 +364,7 @@ class ChapterInput:
     id: str
     title: str
     text: str
-    path: Optional[str] = None
+    path: str | None = None
 
 
 def slugify(text: str) -> str:
@@ -377,7 +376,7 @@ def slugify(text: str) -> str:
     return text[:60] or "chapter"
 
 
-def chapter_id_from_path(index: int, title: str, rel_path: Optional[str]) -> str:
+def chapter_id_from_path(index: int, title: str, rel_path: str | None) -> str:
     if rel_path:
         stem = Path(rel_path).stem
         if stem:
@@ -393,7 +392,7 @@ def sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def _trim_span(text: str, start: int, end: int) -> Optional[Tuple[int, int]]:
+def _trim_span(text: str, start: int, end: int) -> tuple[int, int] | None:
     while start < end and text[start].isspace():
         start += 1
     while end > start and text[end - 1].isspace():
@@ -403,8 +402,8 @@ def _trim_span(text: str, start: int, end: int) -> Optional[Tuple[int, int]]:
     return start, end
 
 
-def split_paragraph_spans(text: str) -> List[Tuple[int, int]]:
-    spans: List[Tuple[int, int]] = []
+def split_paragraph_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
     start = 0
     for match in re.finditer(r"\n\s*\n+", text):
         end = match.start()
@@ -418,8 +417,8 @@ def split_paragraph_spans(text: str) -> List[Tuple[int, int]]:
     return spans
 
 
-def split_sentence_spans(paragraph: str, offset: int) -> List[Tuple[int, int]]:
-    spans: List[Tuple[int, int]] = []
+def split_sentence_spans(paragraph: str, offset: int) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
     start = 0
     for match in _SENT_SPLIT_RE.finditer(paragraph):
         end = match.start()
@@ -435,8 +434,8 @@ def split_sentence_spans(paragraph: str, offset: int) -> List[Tuple[int, int]]:
     return spans
 
 
-def _coerce_span_pairs(spans: Sequence[Sequence[int]]) -> List[Tuple[int, int]]:
-    pairs: List[Tuple[int, int]] = []
+def _coerce_span_pairs(spans: Sequence[Sequence[int]]) -> list[tuple[int, int]]:
+    pairs: list[tuple[int, int]] = []
     for span in spans:
         if not isinstance(span, (list, tuple)) or len(span) != 2:
             continue
@@ -476,8 +475,8 @@ def _gap_has_symbolic_separator(gap: str) -> bool:
 
 
 def compute_chunk_pause_multipliers(
-    text: str, spans: Sequence[Tuple[int, int]]
-) -> List[int]:
+    text: str, spans: Sequence[tuple[int, int]]
+) -> list[int]:
     if not spans:
         return []
     multipliers = [1] * len(spans)
@@ -495,8 +494,8 @@ def compute_chunk_pause_multipliers(
 
 
 def _normalize_pause_multipliers(
-    pause_multipliers: object, chunk_count: int, fallback: Optional[Sequence[int]] = None
-) -> List[int]:
+    pause_multipliers: object, chunk_count: int, fallback: Sequence[int] | None = None
+) -> list[int]:
     if chunk_count <= 0:
         return []
     normalized = [1] * chunk_count
@@ -584,31 +583,29 @@ def _should_skip_sentence_split(paragraph: str, end: int, next_pos: int) -> bool
     next_word = _next_word(paragraph, next_pos)
     next_lower = next_word.lower()
 
-    if _ends_with_ellipsis(tail):
-        if next_word and next_word[0].islower():
-            return True
+    if _ends_with_ellipsis(tail) and next_word and next_word[0].islower():
+        return True
 
-    if _REFERENCE_ABBREV_RE.search(tail):
-        if _REFERENCE_ABBREV_FOLLOW_RE.match(paragraph[next_pos:]):
-            return True
+    if _REFERENCE_ABBREV_RE.search(tail) and _REFERENCE_ABBREV_FOLLOW_RE.match(
+        paragraph[next_pos:]
+    ):
+        return True
 
     if _is_whitelisted_abbrev_boundary(tail, paragraph, next_pos):
-        if _ends_with_etc(tail) and next_word and next_word[0].isupper():
-            if next_lower in _SENTENCE_STARTERS:
-                return False
-        return True
+        return not (
+            _ends_with_etc(tail)
+            and next_word
+            and next_word[0].isupper()
+            and next_lower in _SENTENCE_STARTERS
+        )
 
     if _ABBREV_SENT_RE.search(tail):
-        if next_lower and next_lower in _SENTENCE_STARTERS:
-            return False
-        return True
+        return not (next_lower and next_lower in _SENTENCE_STARTERS)
 
     if _MULTI_INITIAL_RE.search(tail):
         if next_word and next_word[0].islower():
             return True
-        if next_lower and next_lower in _SENTENCE_STARTERS:
-            return False
-        return True
+        return not (next_lower and next_lower in _SENTENCE_STARTERS)
 
     return bool(_SINGLE_INITIAL_RE.search(tail))
 
@@ -640,12 +637,12 @@ def _span_has_speakable_text(text: str, start: int, end: int) -> bool:
 
 def split_span_by_words(
     text: str, start: int, end: int, max_chars: int
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     segment = text[start:end]
     words = list(re.finditer(r"\S+", segment))
     if not words:
         return []
-    spans: List[Tuple[int, int]] = []
+    spans: list[tuple[int, int]] = []
     idx = 0
     chunk_start = start + words[0].start()
     chunk_end = start + words[0].end()
@@ -654,7 +651,6 @@ def split_span_by_words(
     idx = 1
     while idx < len(words):
         word = words[idx]
-        word_start = start + word.start()
         word_end = start + word.end()
         if word_end - chunk_start > max_chars and chunk_end > chunk_start:
             split_idx = last_punct_idx if last_punct_idx is not None else last_fit_idx
@@ -681,11 +677,11 @@ def split_span_by_words(
 
 def make_chunk_spans(
     text: str, max_chars: int, chunk_mode: str = "sentence"
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     if chunk_mode != "sentence":
         chunk_mode = "sentence"
 
-    spans: List[Tuple[int, int]] = []
+    spans: list[tuple[int, int]] = []
     for para_start, para_end in split_paragraph_spans(text):
         paragraph = text[para_start:para_end]
         sentence_spans = split_sentence_spans(paragraph, para_start)
@@ -697,12 +693,12 @@ def make_chunk_spans(
     return [span for span in spans if _span_has_speakable_text(text, *span)]
 
 
-def make_chunks(text: str, max_chars: int, chunk_mode: str = "sentence") -> List[str]:
+def make_chunks(text: str, max_chars: int, chunk_mode: str = "sentence") -> list[str]:
     spans = make_chunk_spans(text, max_chars=max_chars, chunk_mode=chunk_mode)
     return [text[start:end] for start, end in spans]
 
 
-def split_tts_text_for_synthesis(text: str, max_chars: int) -> List[str]:
+def split_tts_text_for_synthesis(text: str, max_chars: int) -> list[str]:
     if not text:
         return []
     if max_chars <= 0 or len(text) <= max_chars:
@@ -713,7 +709,7 @@ def split_tts_text_for_synthesis(text: str, max_chars: int) -> List[str]:
     return [text[start:end] for start, end in spans]
 
 
-def load_text_chapters(text_path: Path) -> List[ChapterInput]:
+def load_text_chapters(text_path: Path) -> list[ChapterInput]:
     text = read_clean_text(text_path)
     title = text_path.stem or "text"
     chapter_id = chapter_id_from_path(1, title, None)
@@ -722,7 +718,7 @@ def load_text_chapters(text_path: Path) -> List[ChapterInput]:
     ]
 
 
-def load_book_chapters(book_dir: Path) -> List[ChapterInput]:
+def load_book_chapters(book_dir: Path) -> list[ChapterInput]:
     toc_path = book_dir / "clean" / "toc.json"
     if not toc_path.exists():
         raise FileNotFoundError(f"Missing clean/toc.json at {toc_path}")
@@ -732,7 +728,7 @@ def load_book_chapters(book_dir: Path) -> List[ChapterInput]:
     if not isinstance(entries, list) or not entries:
         raise ValueError("clean/toc.json contains no chapters.")
 
-    chapters: List[ChapterInput] = []
+    chapters: list[ChapterInput] = []
     for fallback_idx, entry in enumerate(entries, start=1):
         rel = entry.get("path")
         if not rel:
@@ -783,7 +779,7 @@ def atomic_write_json(path: Path, obj: Any) -> None:
     tmp.replace(path)
 
 
-def write_status(out_dir: Path, stage: str, detail: Optional[str] = None) -> None:
+def write_status(out_dir: Path, stage: str, detail: str | None = None) -> None:
     payload = {"stage": stage, "updated_unix": int(time.time())}
     if detail:
         payload["detail"] = detail
@@ -792,13 +788,13 @@ def write_status(out_dir: Path, stage: str, detail: Optional[str] = None) -> Non
 
 def write_chunk_files(
     chunks: Sequence[str], chunk_dir: Path, overwrite: bool = False
-) -> List[Path]:
+) -> list[Path]:
     chunk_dir.mkdir(parents=True, exist_ok=True)
     if overwrite:
         for path in chunk_dir.glob("*.txt"):
             path.unlink()
 
-    paths: List[Path] = []
+    paths: list[Path] = []
     for idx, chunk in enumerate(chunks, start=1):
         path = chunk_dir / f"{idx:06d}.txt"
         if overwrite or not path.exists():
@@ -827,7 +823,7 @@ def _require_tts() -> None:
         )
 
 
-def tensor_to_int16(audio: "torch.Tensor") -> "torch.Tensor":
+def tensor_to_int16(audio: torch.Tensor) -> torch.Tensor:
     """
     Pocket-TTS README says returned audio is PCM data in a 1D torch tensor.
     Make this robust to float or int tensors.
@@ -894,11 +890,11 @@ def write_wav_mono_16k_or_24k(
 class _TTSBackend:
     name = "base"
 
-    def sample_rate(self, language: Optional[str], layers: Optional[int]) -> int:
+    def sample_rate(self, language: str | None, layers: int | None) -> int:
         raise NotImplementedError
 
     def prepare_voice(
-        self, voice_prompt: str, language: Optional[str], layers: Optional[int]
+        self, voice_prompt: str, language: str | None, layers: int | None
     ) -> Any:
         raise NotImplementedError
 
@@ -906,8 +902,8 @@ class _TTSBackend:
         self,
         voice_handle: Any,
         text: str,
-        language: Optional[str],
-        layers: Optional[int],
+        language: str | None,
+        layers: int | None,
     ) -> np.ndarray:
         raise NotImplementedError
 
@@ -928,14 +924,14 @@ class ManekoBackend(_TTSBackend):
         self._pocket = maneko.Pocket("cpu")
 
     @staticmethod
-    def _stem(language: Optional[str], layers: Optional[int]) -> str:
+    def _stem(language: str | None, layers: int | None) -> str:
         return language_util.resolve_maneko_language(language, layers)
 
-    def sample_rate(self, language: Optional[str], layers: Optional[int]) -> int:
+    def sample_rate(self, language: str | None, layers: int | None) -> int:
         return int(self._pocket.sample_rate(self._stem(language, layers)))
 
     def prepare_voice(
-        self, voice_prompt: str, language: Optional[str], layers: Optional[int]
+        self, voice_prompt: str, language: str | None, layers: int | None
     ) -> Any:
         # maneko clones lazily and caches the voice-state per (voice, language)
         # internally, so there is nothing to precompute — just carry the path.
@@ -945,8 +941,8 @@ class ManekoBackend(_TTSBackend):
         self,
         voice_handle: Any,
         text: str,
-        language: Optional[str],
-        layers: Optional[int],
+        language: str | None,
+        layers: int | None,
     ) -> np.ndarray:
         floats = self._pocket.generate(text, self._stem(language, layers), voice_handle)
         return floats_to_int16(floats)
@@ -962,11 +958,11 @@ class TorchBackend(_TTSBackend):
         _require_tts()
         _install_tts_warning_filter()
 
-    def sample_rate(self, language: Optional[str], layers: Optional[int]) -> int:
+    def sample_rate(self, language: str | None, layers: int | None) -> int:
         return int(_load_tts_model(language, layers).sample_rate)
 
     def prepare_voice(
-        self, voice_prompt: str, language: Optional[str], layers: Optional[int]
+        self, voice_prompt: str, language: str | None, layers: int | None
     ) -> Any:
         model = _load_tts_model(language, layers)
         return model.get_state_for_audio_prompt(voice_prompt)
@@ -975,15 +971,15 @@ class TorchBackend(_TTSBackend):
         self,
         voice_handle: Any,
         text: str,
-        language: Optional[str],
-        layers: Optional[int],
+        language: str | None,
+        layers: int | None,
     ) -> np.ndarray:
         model = _load_tts_model(language, layers)
         audio = model.generate_audio(voice_handle, text)
         return tensor_to_int16(audio).numpy()
 
 
-_TTS_BACKENDS: Dict[str, _TTSBackend] = {}
+_TTS_BACKENDS: dict[str, _TTSBackend] = {}
 _TTS_BACKEND_LOCK = threading.Lock()
 
 
@@ -1046,7 +1042,7 @@ def wav_duration_ms(path: Path) -> int:
         rate = wf.getframerate()
     if rate <= 0:
         return 0
-    return int(round(frames * 1000.0 / rate))
+    return round(frames * 1000.0 / rate)
 
 
 def is_valid_wav(path: Path) -> bool:
@@ -1057,7 +1053,7 @@ def is_valid_wav(path: Path) -> bool:
         return False
 
 
-def build_concat_file(segment_paths: List[Path], concat_path: Path, base_dir: Path) -> None:
+def build_concat_file(segment_paths: list[Path], concat_path: Path, base_dir: Path) -> None:
     lines = []
     for p in segment_paths:
         rel = p.relative_to(base_dir).as_posix()
@@ -1067,7 +1063,7 @@ def build_concat_file(segment_paths: List[Path], concat_path: Path, base_dir: Pa
 
 
 def build_chapters_ffmeta(
-    chapters: Sequence[Tuple[str, int]], ffmeta_path: Path
+    chapters: Sequence[tuple[str, int]], ffmeta_path: Path
 ) -> None:
     """
     Generates a simple FFMETADATA1 file with one chapter per chapter.
@@ -1108,9 +1104,9 @@ def prepare_manifest(
     pad_ms: int,
     chunk_mode: str,
     rechunk: bool,
-    language: Optional[str] = None,
-    layers: Optional[int] = None,
-) -> Tuple[Dict[str, Any], List[List[str]], int]:
+    language: str | None = None,
+    layers: int | None = None,
+) -> tuple[dict[str, Any], list[list[str]], int]:
     language = language_util.normalize_language_tag(language)
     layers = language_util.resolve_layers(language, layers)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1140,7 +1136,7 @@ def prepare_manifest(
                 "Run with --rechunk to regenerate manifest."
             )
 
-        chapter_chunks: List[List[str]] = []
+        chapter_chunks: list[list[str]] = []
         for ch_input, ch_manifest in zip(chapters, manifest_chapters):
             if ch_manifest.get("id") != ch_input.id:
                 raise ValueError(
@@ -1242,7 +1238,7 @@ def prepare_manifest(
     return manifest, chapter_chunks, int(manifest["pad_ms"])
 
 
-def _normalize_voice_id(value: Optional[str], default_voice: str) -> str:
+def _normalize_voice_id(value: str | None, default_voice: str) -> str:
     if value is None:
         return default_voice
     cleaned = str(value).strip()
@@ -1253,7 +1249,7 @@ def _normalize_voice_id(value: Optional[str], default_voice: str) -> str:
     return cleaned
 
 
-def _load_voice_map(path: Optional[Path]) -> dict:
+def _load_voice_map(path: Path | None) -> dict:
     if path is None:
         return {}
     if not path.exists():
@@ -1272,14 +1268,14 @@ def _load_voice_map(path: Optional[Path]) -> dict:
 
 def chunk_book(
     book_dir: Path,
-    out_dir: Optional[Path] = None,
-    voice: Optional[str] = None,
+    out_dir: Path | None = None,
+    voice: str | None = None,
     max_chars: int = 400,
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = True,
-    layers: Optional[int] = None,
-) -> Dict[str, Any]:
+    layers: int | None = None,
+) -> dict[str, Any]:
     if out_dir is None:
         out_dir = book_dir / "tts"
     if voice is None:
@@ -1321,19 +1317,19 @@ def _resolve_book_language(book_dir: Path) -> str:
 
 def synthesize(
     chapters: Sequence[ChapterInput],
-    voice: Optional[str],
+    voice: str | None,
     out_dir: Path,
     max_chars: int = 400,
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = False,
-    wipe_segments: Optional[bool] = None,
-    only_chapter_ids: Optional[set[str]] = None,
-    voice_map_path: Optional[Path] = None,
-    reading_overrides_dir: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
-    language: Optional[str] = None,
-    layers: Optional[int] = None,
+    wipe_segments: bool | None = None,
+    only_chapter_ids: set[str] | None = None,
+    voice_map_path: Path | None = None,
+    reading_overrides_dir: Path | None = None,
+    base_dir: Path | None = None,
+    language: str | None = None,
+    layers: int | None = None,
 ) -> int:
     backend = get_backend()
     language = language_util.normalize_language_tag(language)
@@ -1356,8 +1352,8 @@ def synthesize(
         sys.stderr.write(f"{exc}\n")
         return 2
     try:
-        global_reading_overrides: List[Dict[str, Any]] = []
-        chapter_reading_overrides: Dict[str, List[Dict[str, Any]]] = {}
+        global_reading_overrides: list[dict[str, Any]] = []
+        chapter_reading_overrides: dict[str, list[dict[str, Any]]] = {}
         if reading_overrides_dir is not None:
             global_reading_overrides, chapter_reading_overrides = _load_reading_overrides(
                 reading_overrides_dir
@@ -1395,8 +1391,8 @@ def synthesize(
     if wipe_segments and seg_dir.exists():
         shutil.rmtree(seg_dir)
 
-    chapter_voice_map: Dict[str, str] = {}
-    voice_overrides: Dict[str, str] = {}
+    chapter_voice_map: dict[str, str] = {}
+    voice_overrides: dict[str, str] = {}
     if voice_map:
         raw_overrides = voice_map.get("chapters", {})
         for entry in manifest.get("chapters", []):
@@ -1415,7 +1411,7 @@ def synthesize(
             chapter_id = entry.get("id") or "chapter"
             chapter_voice_map[chapter_id] = default_voice
 
-    chapter_reading_map: Dict[str, List[Dict[str, Any]]] = {}
+    chapter_reading_map: dict[str, list[dict[str, Any]]] = {}
     for entry in manifest.get("chapters", []):
         chapter_id = entry.get("id") or "chapter"
         chapter_entries = chapter_reading_overrides.get(chapter_id, [])
@@ -1423,7 +1419,7 @@ def synthesize(
             global_reading_overrides, chapter_entries
         )
 
-    voice_prompts: Dict[str, str] = {}
+    voice_prompts: dict[str, str] = {}
     try:
         for voice_id in sorted(set(chapter_voice_map.values())):
             voice_prompts[voice_id] = resolve_voice_prompt(
@@ -1440,15 +1436,15 @@ def synthesize(
         manifest["sample_rate"] = sample_rate
         atomic_write_json(manifest_path, manifest)
 
-    voice_states: Dict[str, Any] = {}
+    voice_states: dict[str, Any] = {}
     for voice_id, voice_prompt in voice_prompts.items():
         voice_states[voice_id] = backend.prepare_voice(voice_prompt, language, layers)
     write_status(out_dir, "synthesizing")
 
-    base_pad_samples = int(round(sample_rate * (pad_ms / 1000.0)))
-    pad_arrays: Dict[int, Optional[np.ndarray]] = {}
+    base_pad_samples = round(sample_rate * (pad_ms / 1000.0))
+    pad_arrays: dict[int, np.ndarray | None] = {}
 
-    def pad_array_for(multiplier: int) -> Optional[np.ndarray]:
+    def pad_array_for(multiplier: int) -> np.ndarray | None:
         multiplier = max(1, int(multiplier))
         if base_pad_samples <= 0:
             return None
@@ -1461,7 +1457,7 @@ def synthesize(
             )
         return pad_arrays[multiplier]
 
-    segment_paths: List[Path] = []
+    segment_paths: list[Path] = []
     selected_ids = set(only_chapter_ids) if only_chapter_ids else None
     selected_indices = [
         idx
@@ -1550,7 +1546,7 @@ def synthesize(
 
                 sub_texts = split_tts_text_for_synthesis(tts_text, max_chars=max_chars)
                 sub_total = len(sub_texts)
-                audio_parts: List[np.ndarray] = []
+                audio_parts: list[np.ndarray] = []
                 for sub_idx, sub_text in enumerate(sub_texts, start=1):
                     sub_text = sub_text.strip()
                     if not sub_text:
@@ -1581,7 +1577,7 @@ def synthesize(
 
                 write_wav_mono_16k_or_24k(seg_path, a16, sample_rate=sample_rate)
                 segment_paths.append(seg_path)
-                dms = int(round(a16.size * 1000.0 / sample_rate))
+                dms = round(a16.size * 1000.0 / sample_rate)
 
                 # Persist progress for restartability.
                 ch_entry["durations_ms"][chunk_idx - 1] = dms
@@ -1592,7 +1588,7 @@ def synthesize(
 
     build_concat_file(segment_paths, concat_path, base_dir=out_dir)
 
-    chapter_meta: List[Tuple[str, int]] = []
+    chapter_meta: list[tuple[str, int]] = []
     for ch_entry in manifest["chapters"]:
         title = ch_entry.get("title") or ch_entry.get("id") or "Chapter"
         durations = ch_entry.get("durations_ms", [])
@@ -1609,9 +1605,9 @@ def synthesize_chunk(
     out_dir: Path,
     chapter_id: str,
     chunk_index: int,
-    voice: Optional[str] = None,
-    voice_map_path: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
+    voice: str | None = None,
+    voice_map_path: Path | None = None,
+    base_dir: Path | None = None,
 ) -> dict:
     backend = get_backend()
     if base_dir is None:
@@ -1653,7 +1649,7 @@ def synthesize_chunk(
     if chunk_index >= chunk_count:
         raise ValueError(f"chunk_index out of range for {chapter_id}")
 
-    chunk_text: Optional[str] = None
+    chunk_text: str | None = None
     if chunks and chunk_index < len(chunks):
         chunk_text = str(chunks[chunk_index])
     if chunk_text is None:
@@ -1731,7 +1727,7 @@ def synthesize_chunk(
 
     max_chars = int(manifest.get("max_chars") or 400)
     pad_ms = int(manifest.get("pad_ms") or 300)
-    base_pad_samples = int(round(sample_rate * (pad_ms / 1000.0)))
+    base_pad_samples = round(sample_rate * (pad_ms / 1000.0))
     try:
         pause_multiplier = max(1, int(pause_multipliers[chunk_index]))
     except (TypeError, ValueError, IndexError):
@@ -1772,7 +1768,7 @@ def synthesize_chunk(
     voice_state = backend.prepare_voice(voice_prompt, language, layers)
     sub_texts = split_tts_text_for_synthesis(tts_text, max_chars=max_chars)
     sub_total = len(sub_texts)
-    audio_parts: List[np.ndarray] = []
+    audio_parts: list[np.ndarray] = []
     for sub_idx, sub_text in enumerate(sub_texts, start=1):
         with _tts_warning_context(
             chapter_id, chunk_index + 1, chunk_count, sub_idx, sub_total
@@ -1806,16 +1802,16 @@ def synthesize_chunk(
 
 def synthesize_text(
     text_path: Path,
-    voice: Optional[str],
+    voice: str | None,
     out_dir: Path,
     max_chars: int = 400,
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = False,
-    voice_map_path: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
-    language: Optional[str] = None,
-    layers: Optional[int] = None,
+    voice_map_path: Path | None = None,
+    base_dir: Path | None = None,
+    language: str | None = None,
+    layers: int | None = None,
 ) -> int:
     chapters = load_text_chapters(text_path)
     return synthesize(
@@ -1836,16 +1832,16 @@ def synthesize_text(
 
 def synthesize_book(
     book_dir: Path,
-    voice: Optional[str],
-    out_dir: Optional[Path] = None,
+    voice: str | None,
+    out_dir: Path | None = None,
     max_chars: int = 400,
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = False,
-    voice_map_path: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
-    language: Optional[str] = None,
-    layers: Optional[int] = None,
+    voice_map_path: Path | None = None,
+    base_dir: Path | None = None,
+    language: str | None = None,
+    layers: int | None = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -1880,16 +1876,16 @@ def synthesize_book(
 
 def synthesize_book_sample(
     book_dir: Path,
-    voice: Optional[str],
-    out_dir: Optional[Path] = None,
+    voice: str | None,
+    out_dir: Path | None = None,
     max_chars: int = 400,
     pad_ms: int = 300,
     chunk_mode: str = "sentence",
     rechunk: bool = False,
-    voice_map_path: Optional[Path] = None,
-    base_dir: Optional[Path] = None,
-    language: Optional[str] = None,
-    layers: Optional[int] = None,
+    voice_map_path: Path | None = None,
+    base_dir: Path | None = None,
+    language: str | None = None,
+    layers: int | None = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -2010,7 +2006,7 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.book:

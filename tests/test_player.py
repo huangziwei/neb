@@ -1,9 +1,9 @@
+import json
 import shutil
 from pathlib import Path
-import json
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from neb import player
 

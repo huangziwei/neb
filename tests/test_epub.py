@@ -91,7 +91,7 @@ def _find_unique_snippet(text: str, other: str, length: int = 40) -> str | None:
     if not text:
         return None
     limit = max(0, len(text) - length + 1)
-    for idx in range(0, limit):
+    for idx in range(limit):
         snippet = text[idx : idx + length]
         if snippet.strip() and snippet not in other:
             return snippet
@@ -378,7 +378,7 @@ def test_extract_chapters_merges_single_toc_split_series() -> None:
         chapter = chapter_by_source.get(base_href)
         assert chapter is not None
 
-        first_href, first_item = spine_series[key][0]
+        _first_href, first_item = spine_series[key][0]
         first_text = epub_util.html_to_text(first_item.get_content())
         assert len(chapter.text) > len(first_text)
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List
 from urllib.parse import unquote
 
 from bs4 import BeautifulSoup
@@ -88,9 +88,9 @@ def _first_dc_meta(book: epub.EpubBook, name: str) -> str:
     return _unescape_meta(value) if value else ""
 
 
-def _all_dc_meta(book: epub.EpubBook, name: str) -> List[str]:
+def _all_dc_meta(book: epub.EpubBook, name: str) -> list[str]:
     items = book.get_metadata("DC", name)
-    values: List[str] = []
+    values: list[str] = []
     for value, _attrs in items:
         if value:
             values.append(_unescape_meta(value))
@@ -165,7 +165,7 @@ def _find_cover_item(book: epub.EpubBook) -> object | None:
     for item in book.get_items_of_type(ITEM_IMAGE):
         try:
             data = item.get_content()
-        except Exception:
+        except Exception:  # noqa: S112 - unreadable image items are simply skipped
             continue
         if not data:
             continue
@@ -235,8 +235,8 @@ def normalize_href(href: str) -> str:
     return unquote(href)
 
 
-def flatten_toc(toc: Iterable) -> List[TocEntry]:
-    entries: List[TocEntry] = []
+def flatten_toc(toc: Iterable) -> list[TocEntry]:
+    entries: list[TocEntry] = []
 
     def walk(nodes: Iterable) -> None:
         for node in nodes:
@@ -256,14 +256,14 @@ def flatten_toc(toc: Iterable) -> List[TocEntry]:
     return entries
 
 
-def build_toc_entries(book: epub.EpubBook) -> List[TocEntry]:
+def build_toc_entries(book: epub.EpubBook) -> list[TocEntry]:
     toc = book.toc or []
     entries = flatten_toc(toc)
     return [e for e in entries if e.href]
 
 
-def build_spine_entries(book: epub.EpubBook) -> List[TocEntry]:
-    entries: List[TocEntry] = []
+def build_spine_entries(book: epub.EpubBook) -> list[TocEntry]:
+    entries: list[TocEntry] = []
     for idref, _linear in book.spine:
         item = book.get_item_with_id(idref)
         if not item or item.get_type() != ITEM_DOCUMENT:
@@ -273,8 +273,8 @@ def build_spine_entries(book: epub.EpubBook) -> List[TocEntry]:
     return entries
 
 
-def _build_spine_items(book: epub.EpubBook) -> List[tuple[str, object]]:
-    items: List[tuple[str, object]] = []
+def _build_spine_items(book: epub.EpubBook) -> list[tuple[str, object]]:
+    items: list[tuple[str, object]] = []
     for idref, _linear in book.spine:
         item = book.get_item_with_id(idref)
         if not item or item.get_type() != ITEM_DOCUMENT:
@@ -296,7 +296,7 @@ def _split_series_key(href: str) -> tuple[str, str] | None:
 def _join_item_text(
     items: Iterable[object], footnote_index: dict[str, set[str]] | None = None
 ) -> str:
-    parts: List[str] = []
+    parts: list[str] = []
     for item in items:
         text = html_to_text(
             item.get_content(),
@@ -386,9 +386,7 @@ def _looks_like_note_entry_tag(tag: object, source_href: str) -> bool:
         return False
 
     target_href = normalize_href(href)
-    if target_href and target_href == source_href:
-        return False
-    return True
+    return not (target_href and target_href == source_href)
 
 
 def _normalize_break_runs(text: str) -> str:
@@ -417,7 +415,7 @@ def _normalize_block_text(
     # EPUB XHTML often wraps text nodes for formatting; those newlines are not
     # semantic paragraph breaks and should collapse to spaces.
     segments = text.split(_INLINE_BREAK_PLACEHOLDER)
-    normalized_segments: List[str] = []
+    normalized_segments: list[str] = []
     for segment in segments:
         normalized_segments.append(re.sub(r"\s+", " ", segment).strip())
     text = "\n".join(normalized_segments)
@@ -470,10 +468,7 @@ def _is_structural_heading_block(elem: object) -> bool:
     class_tokens.update(_semantic_tokens(str(attrs.get("id") or "")))
     if _STRUCTURAL_HEADING_CLASS_RE.search(str(attrs.get("id") or "")):
         return True
-    if class_tokens & _STRUCTURAL_HEADING_CLASS_TOKENS:
-        return True
-
-    return False
+    return bool(class_tokens & _STRUCTURAL_HEADING_CLASS_TOKENS)
 
 
 def _ol_item_number(li_elem: object) -> int | None:
@@ -758,7 +753,7 @@ def html_to_text(
     block_tags = {"p", "li", "blockquote", "pre", *_HEADING_TAGS}
     _leaf_block_tags = block_tags - {"blockquote"}
 
-    blocks: List[tuple[str, bool]] = []
+    blocks: list[tuple[str, bool]] = []
     for elem in root.find_all(block_tags):
         # Skip elements nested inside a leaf block (e.g. <p> inside <li>).
         if any(getattr(parent, "name", None) in _leaf_block_tags for parent in elem.parents):
@@ -781,7 +776,7 @@ def html_to_text(
             blocks.append((text, _is_structural_heading_block(elem)))
 
     if blocks:
-        parts: List[str] = []
+        parts: list[str] = []
         for idx, (block_text, is_heading) in enumerate(blocks):
             parts.append(block_text)
             if idx + 1 < len(blocks):
@@ -839,9 +834,9 @@ def _chapters_from_entries(
     book: epub.EpubBook,
     entries: Iterable[TocEntry],
     footnote_index: dict[str, set[str]] | None = None,
-) -> List[Chapter]:
+) -> list[Chapter]:
     seen: set[str] = set()
-    chapters: List[Chapter] = []
+    chapters: list[Chapter] = []
 
     for entry in entries:
         base_href = normalize_href(entry.href)
@@ -875,10 +870,10 @@ def _chapters_from_toc_entries(
     book: epub.EpubBook,
     entries: Iterable[TocEntry],
     footnote_index: dict[str, set[str]] | None = None,
-) -> List[Chapter]:
+) -> list[Chapter]:
     spine_items = _build_spine_items(book)
     spine_index = {href: idx for idx, (href, _item) in enumerate(spine_items)}
-    chapters: List[Chapter] = []
+    chapters: list[Chapter] = []
     seen: set[str] = set()
     entries = list(entries)
     split_series_counts: dict[tuple[str, str], int] = {}
@@ -901,7 +896,7 @@ def _chapters_from_toc_entries(
         seen.add(base_href)
 
         start_idx = spine_index.get(base_href)
-        merged_items: List[object] = []
+        merged_items: list[object] = []
         if start_idx is not None:
             # A TOC marks where a chapter starts in reading order; the chapter
             # runs up to the next TOC entry's spine position (or the end of the
@@ -932,16 +927,15 @@ def _chapters_from_toc_entries(
                     merged_items.append(item)
                     idx += 1
 
-            if not merged_items and key:
-                if next_toc_idx > start_idx + 1:
-                    candidate = []
-                    for i in range(start_idx, next_toc_idx):
-                        if _split_series_key(spine_items[i][0]) == key:
-                            candidate.append(spine_items[i][1])
-                        else:
-                            break
-                    if len(candidate) > 1:
-                        merged_items = candidate
+            if not merged_items and key and next_toc_idx > start_idx + 1:
+                candidate = []
+                for i in range(start_idx, next_toc_idx):
+                    if _split_series_key(spine_items[i][0]) == key:
+                        candidate.append(spine_items[i][1])
+                    else:
+                        break
+                if len(candidate) > 1:
+                    merged_items = candidate
 
             # General case: a chapter whose body spans several spine files that
             # are not split-series siblings (e.g. one file per section, as many
@@ -984,7 +978,7 @@ def _chapters_from_toc_entries(
 
 def ingestion_report(
     book: epub.EpubBook,
-    chapters: List[Chapter],
+    chapters: list[Chapter],
 ) -> dict:
     spine_items = _build_spine_items(book)
     footnote_index = _collect_footnote_index(book)
@@ -993,7 +987,7 @@ def ingestion_report(
     total_chapter_chars = sum(len(ch.text) for ch in chapters)
 
     total_spine_chars = 0
-    orphaned_items: List[dict] = []
+    orphaned_items: list[dict] = []
     orphaned_chars = 0
 
     for href, item in spine_items:
@@ -1020,7 +1014,7 @@ def ingestion_report(
     }
 
 
-def extract_chapters(book: epub.EpubBook, prefer_toc: bool = True) -> List[Chapter]:
+def extract_chapters(book: epub.EpubBook, prefer_toc: bool = True) -> list[Chapter]:
     footnote_index = _collect_footnote_index(book)
     entries = build_toc_entries(book) if prefer_toc else []
     chapters = (

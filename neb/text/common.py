@@ -4,8 +4,8 @@ This module holds:
   * punctuation / break constants used by both chunking (in neb.tts) and
     the TTS-time normalizers;
   * bracket / quote stripping;
-  * Pali / Sanskrit transliteration (ASCII fallback used regardless of the
-    book's language);
+  * script folding, which keeps each language's own diacritics and folds
+    everything else to ASCII;
   * reading-override parsing, loading, merging, and application.
 
 None of the logic here is English- or German-specific; per-language lexical
@@ -17,9 +17,9 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Punctuation sets and pause-break tuning
@@ -95,7 +95,7 @@ def _strip_double_quotes(text: str) -> str:
 def _strip_single_quotes(text: str) -> str:
     if not text:
         return text
-    out: List[str] = []
+    out: list[str] = []
     for idx, ch in enumerate(text):
         if ch not in _SINGLE_QUOTE_CHARS:
             out.append(ch)
@@ -118,8 +118,12 @@ def _strip_single_quotes(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Pali / Sanskrit transliteration
+# Script folding
 # ---------------------------------------------------------------------------
+#
+# Characters a language owns are left alone; everything else is folded to
+# ASCII. English owns nothing, so its Pali/Sanskrit transliteration still
+# applies in full, while German keeps its umlauts and Spanish its enye.
 
 _PALI_SANSKRIT_ASCII_MAP = {
     "ā": "aa",
@@ -167,9 +171,11 @@ def _double_vowel(base: str) -> str:
     return base + base
 
 
-def _normalize_combining_diacritics(text: str) -> str:
+def _normalize_combining_diacritics(
+    text: str, native_letters: frozenset = frozenset()
+) -> str:
     decomposed = unicodedata.normalize("NFD", text)
-    out: List[str] = []
+    out: list[str] = []
     i = 0
     while i < len(decomposed):
         ch = decomposed[i]
@@ -177,11 +183,18 @@ def _normalize_combining_diacritics(text: str) -> str:
             i += 1
             continue
         j = i + 1
-        marks: List[str] = []
+        marks: list[str] = []
         while j < len(decomposed) and unicodedata.combining(decomposed[j]):
             marks.append(decomposed[j])
             j += 1
-        if marks and _COMBINING_MACRON in marks and ch in _MACRON_VOWELS:
+        if not marks:
+            out.append(ch)
+            i = j
+            continue
+        composed = unicodedata.normalize("NFC", ch + "".join(marks))
+        if composed in native_letters:
+            out.append(composed)
+        elif _COMBINING_MACRON in marks and ch in _MACRON_VOWELS:
             out.append(_double_vowel(ch))
         else:
             out.append(ch)
@@ -189,13 +202,25 @@ def _normalize_combining_diacritics(text: str) -> str:
     return "".join(out)
 
 
-def _transliterate_pali_sanskrit(text: str) -> str:
+def fold_script(
+    text: str,
+    native_letters: frozenset = frozenset(),
+    transliterate_indic: bool = False,
+) -> str:
+    """Fold characters outside a language's own alphabet down to ASCII.
+
+    `native_letters` holds the precomposed characters to preserve. Passing an
+    empty set reproduces the English behaviour of stripping every diacritic;
+    `transliterate_indic` additionally spells Pali and Sanskrit letters the way
+    an English model can pronounce them.
+    """
     if not text or text.isascii():
         return text
-    for src, dst in _PALI_SANSKRIT_ASCII_MAP.items():
-        if src in text:
-            text = text.replace(src, dst)
-    return _normalize_combining_diacritics(text)
+    if transliterate_indic:
+        for src, dst in _PALI_SANSKRIT_ASCII_MAP.items():
+            if src in text and src not in native_letters:
+                text = text.replace(src, dst)
+    return _normalize_combining_diacritics(text, native_letters)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +285,7 @@ def _normalize_reading_mode(value: object, *, default: str) -> str:
     return mode
 
 
-def _normalize_reading_override_entry(raw: object) -> Optional[Dict[str, Any]]:
+def _normalize_reading_override_entry(raw: object) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
 
@@ -303,7 +328,7 @@ def _normalize_reading_override_entry(raw: object) -> Optional[Dict[str, Any]]:
     }
 
 
-def _parse_reading_entry_line(line: str) -> Optional[Dict[str, Any]]:
+def _parse_reading_entry_line(line: str) -> dict[str, Any] | None:
     raw = str(line or "").strip()
     if not raw or raw.startswith("#"):
         return None
@@ -318,7 +343,7 @@ def _parse_reading_entry_line(line: str) -> Optional[Dict[str, Any]]:
     )
 
 
-def _parse_reading_entries(raw: object) -> List[Dict[str, Any]]:
+def _parse_reading_entries(raw: object) -> list[dict[str, Any]]:
     if isinstance(raw, dict):
         list_like = raw.get("replacements")
         if list_like is None:
@@ -334,9 +359,9 @@ def _parse_reading_entries(raw: object) -> List[Dict[str, Any]]:
     else:
         list_like = []
 
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for item in list_like:
-        entry: Optional[Dict[str, Any]] = None
+        entry: dict[str, Any] | None = None
         if isinstance(item, dict):
             entry = _normalize_reading_override_entry(item)
         elif isinstance(item, (tuple, list)) and len(item) >= 2:
@@ -352,9 +377,9 @@ def _parse_reading_entries(raw: object) -> List[Dict[str, Any]]:
 
 def _split_reading_overrides_data(
     data: object,
-) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
-    global_entries: List[Dict[str, Any]] = []
-    chapters: Dict[str, List[Dict[str, Any]]] = {}
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    global_entries: list[dict[str, Any]] = []
+    chapters: dict[str, list[dict[str, Any]]] = {}
     chapters_raw: object = {}
 
     if isinstance(data, list):
@@ -370,9 +395,7 @@ def _split_reading_overrides_data(
             global_entries = _parse_reading_entries(data.get("default"))
         elif "*" in data:
             global_entries = _parse_reading_entries(data.get("*"))
-        elif "replacements" in data or "entries" in data:
-            global_entries = _parse_reading_entries(data)
-        elif not has_scoped_keys:
+        elif "replacements" in data or "entries" in data or not has_scoped_keys:
             global_entries = _parse_reading_entries(data)
 
         if "chapters" in data:
@@ -393,7 +416,7 @@ def _reading_overrides_path(book_dir: Path) -> Path:
 
 def _load_reading_overrides(
     book_dir: Path,
-) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
+) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     path = _reading_overrides_path(book_dir)
     if not path.exists():
         return [], {}
@@ -406,15 +429,15 @@ def _load_reading_overrides(
 
 
 def _merge_reading_overrides(
-    global_overrides: Sequence[Dict[str, Any]],
-    chapter_overrides: Sequence[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    global_overrides: Sequence[dict[str, Any]],
+    chapter_overrides: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if not global_overrides and not chapter_overrides:
         return []
 
-    merged: Dict[str, Dict[str, Any]] = {}
+    merged: dict[str, dict[str, Any]] = {}
 
-    def key_for(entry: Dict[str, Any]) -> str:
+    def key_for(entry: dict[str, Any]) -> str:
         pattern = str(entry.get("pattern") or "").strip()
         if pattern:
             case_key = "cs1" if bool(entry.get("case_sensitive")) else "cs0"
@@ -428,7 +451,7 @@ def _merge_reading_overrides(
         case_key = "cs1" if case_sensitive else "cs0"
         return f"lit:{base}:{mode}:{case_key}"
 
-    def add_items(items: Sequence[Dict[str, Any]]) -> None:
+    def add_items(items: Sequence[dict[str, Any]]) -> None:
         for item in items:
             entry = _normalize_reading_override_entry(item)
             if not entry:
@@ -447,12 +470,12 @@ def _literal_override_pattern(base: str, mode: str) -> str:
     return rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])"
 
 
-def apply_reading_overrides(text: str, overrides: Sequence[Dict[str, Any]]) -> str:
+def apply_reading_overrides(text: str, overrides: Sequence[dict[str, Any]]) -> str:
     if not text or not overrides:
         return text
 
-    literals: List[Dict[str, Any]] = []
-    regex_entries: List[Dict[str, Any]] = []
+    literals: list[dict[str, Any]] = []
+    regex_entries: list[dict[str, Any]] = []
     for item in overrides:
         entry = _normalize_reading_override_entry(item)
         if not entry:

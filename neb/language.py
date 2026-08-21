@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 POCKET_TTS_LANGUAGES = {
     "english",
     "french",
@@ -15,7 +13,7 @@ POCKET_TTS_LANGUAGES = {
 
 DEFAULT_LANGUAGE = "english"
 
-_POCKET_TTS_MODEL_IDS: dict[Tuple[str, int], str] = {
+_POCKET_TTS_MODEL_IDS: dict[tuple[str, int], str] = {
     ("english", 6): "english",
     ("french", 24): "french_24l",
     ("german", 6): "german",
@@ -68,7 +66,7 @@ class UnsupportedLanguageError(ValueError):
     """The EPUB declares a language pocket-tts cannot synthesize."""
 
 
-def normalize_language_tag(tag: Optional[str]) -> str:
+def normalize_language_tag(tag: str | None) -> str:
     """Map a raw dc:language tag to a pocket-tts language name.
 
     Empty/missing inputs fall back to DEFAULT_LANGUAGE.
@@ -95,7 +93,7 @@ def normalize_language_tag(tag: Optional[str]) -> str:
     )
 
 
-def display_name(pocket_tts_language: Optional[str]) -> str:
+def display_name(pocket_tts_language: str | None) -> str:
     """Human-readable name for a pocket-tts language (e.g. 'german' -> 'German')."""
     if not pocket_tts_language:
         return ""
@@ -104,7 +102,7 @@ def display_name(pocket_tts_language: Optional[str]) -> str:
     )
 
 
-def resolve_language(tag: Optional[str]) -> str:
+def resolve_language(tag: str | None) -> str:
     """Normalize a raw language tag, falling back to DEFAULT_LANGUAGE if unsupported.
 
     Use this in display paths (e.g. player) where an unknown code should
@@ -116,7 +114,7 @@ def resolve_language(tag: Optional[str]) -> str:
         return DEFAULT_LANGUAGE
 
 
-def available_layers(language: str) -> List[int]:
+def available_layers(language: str) -> list[int]:
     """Layer variants actually bundled with pocket-tts for a given language."""
     lang = resolve_language(language)
     return sorted({layers for (lng, layers) in _POCKET_TTS_MODEL_IDS if lng == lang})
@@ -128,7 +126,7 @@ def default_layers(language: str) -> int:
     return _DEFAULT_LAYERS_BY_LANGUAGE.get(lang, 6)
 
 
-def resolve_layers(language: str, layers: Optional[int]) -> int:
+def resolve_layers(language: str, layers: int | None) -> int:
     """Coerce a requested layer count to one that pocket-tts supports.
 
     If `layers` is None or unavailable, falls back to the language's default.
@@ -140,7 +138,7 @@ def resolve_layers(language: str, layers: Optional[int]) -> int:
     return default_layers(lang)
 
 
-def resolve_model_id(language: str, layers: Optional[int] = None) -> str:
+def resolve_model_id(language: str, layers: int | None = None) -> str:
     """Return the pocket-tts YAML stem for a (language, layers) pair."""
     lang = resolve_language(language)
     lay = resolve_layers(lang, layers)
@@ -158,7 +156,7 @@ _POCKET_ID_TO_MANEKO_STEM: dict[str, str] = {
 }
 
 
-def resolve_maneko_language(language: str, layers: Optional[int] = None) -> str:
+def resolve_maneko_language(language: str, layers: int | None = None) -> str:
     """Return the maneko config stem for a (language, layers) pair.
 
     Built on top of `resolve_model_id`, so it inherits the same ISO-tag handling

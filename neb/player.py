@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import html
 import hashlib
+import html
 import json
 import os
 import re
@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, List, Optional, Union
+from typing import IO
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -30,6 +30,7 @@ from . import tts as tts_util
 from .text import guess_title_from_path, read_clean_text
 from .text.common import READING_OVERRIDES_FILENAME, _load_reading_overrides
 from .voice import DEFAULT_VOICE, resolve_voice_prompt
+
 
 def _load_json(path: Path) -> dict:
     if not path.exists():
@@ -57,7 +58,7 @@ _CLONE_TIME_TOKEN_RE = re.compile(r"^\d+(?:\.\d+)?$")
 _VOICE_GENDERS = {"female", "male"}
 
 
-def _normalize_voice_gender(value: object) -> Optional[str]:
+def _normalize_voice_gender(value: object) -> str | None:
     if value is None:
         return None
     raw = str(value).strip().lower()
@@ -68,7 +69,7 @@ def _normalize_voice_gender(value: object) -> Optional[str]:
     return raw
 
 
-def _normalize_voice_language(value: object) -> Optional[str]:
+def _normalize_voice_language(value: object) -> str | None:
     """Map a raw voice language tag to a pocket-tts language name.
 
     Empty/missing stays None (untagged); unsupported raises ValueError.
@@ -84,14 +85,14 @@ def _normalize_voice_language(value: object) -> Optional[str]:
         raise ValueError(str(exc)) from exc
 
 
-def _safe_voice_gender(value: object) -> Optional[str]:
+def _safe_voice_gender(value: object) -> str | None:
     try:
         return _normalize_voice_gender(value)
     except ValueError:
         return None
 
 
-def _safe_voice_language(value: object) -> Optional[str]:
+def _safe_voice_language(value: object) -> str | None:
     try:
         return _normalize_voice_language(value)
     except ValueError:
@@ -99,7 +100,7 @@ def _safe_voice_language(value: object) -> Optional[str]:
 
 
 def _voice_metadata_entry(
-    gender: Optional[str], language: Optional[str]
+    gender: str | None, language: str | None
 ) -> dict[str, str]:
     """Build a voices/metadata.json entry, omitting untagged fields."""
     entry: dict[str, str] = {}
@@ -110,7 +111,7 @@ def _voice_metadata_entry(
     return entry
 
 
-def _normalize_voice_display_name(value: object) -> Optional[str]:
+def _normalize_voice_display_name(value: object) -> str | None:
     if value is None:
         return None
     raw = re.sub(r"\s+", " ", str(value).strip()).lower()
@@ -157,8 +158,8 @@ def _load_voice_metadata(repo_root: Path) -> dict[str, dict[str, str]]:
             rel_key, _ = _resolve_local_voice_value(key, repo_root)
         except ValueError:
             continue
-        gender: Optional[str] = None
-        language: Optional[str] = None
+        gender: str | None = None
+        language: str | None = None
         if isinstance(value, dict):
             gender = _safe_voice_gender(value.get("gender"))
             language = _safe_voice_language(value.get("language"))
@@ -199,7 +200,7 @@ def _download_clone_source(url: str, dest: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
-def _coerce_clone_voice_name(raw: Optional[str], source_name: str) -> str:
+def _coerce_clone_voice_name(raw: str | None, source_name: str) -> str:
     value = raw or source_name
     base = Path(value).name.strip()
     if not base:
@@ -338,7 +339,7 @@ def _resolve_clone_source(source: str, repo_root: Path) -> tuple[Path, str, str]
 def _run_clone_ffmpeg(input_path: Path, output_path: Path, start: str, duration: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = _build_clone_ffmpeg_cmd(input_path, output_path, start, duration)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode == 0:
         return
     detail = (result.stderr or result.stdout or "").strip()
@@ -356,7 +357,7 @@ def _book_rules_path(book_dir: Path) -> Path:
     return sanitize.book_rules_path(book_dir)
 
 
-def _select_rules_path(book_dir: Path) -> Optional[Path]:
+def _select_rules_path(book_dir: Path) -> Path | None:
     book_rules = _book_rules_path(book_dir)
     if book_rules.exists():
         return book_rules
@@ -429,13 +430,13 @@ def _render_highlight(text: str, ranges: list[tuple[int, int]]) -> str:
     return "".join(parts)
 
 
-def _load_chapter_text(path: Optional[Path]) -> str:
+def _load_chapter_text(path: Path | None) -> str:
     if not path or not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
 
 
-def _pick_preview_chapter(clean_toc: dict, chapter_index: Optional[int]) -> dict:
+def _pick_preview_chapter(clean_toc: dict, chapter_index: int | None) -> dict:
     chapters = clean_toc.get("chapters", []) if isinstance(clean_toc, dict) else []
     if not chapters:
         return {}
@@ -446,7 +447,7 @@ def _pick_preview_chapter(clean_toc: dict, chapter_index: Optional[int]) -> dict
     return chapters[0]
 
 
-def _find_clean_chapter(clean_toc: dict, chapter_index: int) -> Optional[dict]:
+def _find_clean_chapter(clean_toc: dict, chapter_index: int) -> dict | None:
     chapters = clean_toc.get("chapters", []) if isinstance(clean_toc, dict) else []
     for entry in chapters:
         if entry.get("index") == chapter_index:
@@ -454,7 +455,7 @@ def _find_clean_chapter(clean_toc: dict, chapter_index: int) -> Optional[dict]:
     return None
 
 
-def _resolve_raw_path(book_dir: Path, raw_toc: dict, clean_entry: dict) -> Optional[Path]:
+def _resolve_raw_path(book_dir: Path, raw_toc: dict, clean_entry: dict) -> Path | None:
     source_index = clean_entry.get("source_index")
     if source_index is None:
         return None
@@ -611,18 +612,18 @@ def _normalize_voice_value(value: object, repo_root: Path) -> str:
     return cleaned
 
 
-def _normalize_metadata_text(value: Optional[str]) -> str:
+def _normalize_metadata_text(value: str | None) -> str:
     return str(value or "").strip()
 
 
-def _normalize_authors(raw: Union[str, List[str], None]) -> List[str]:
+def _normalize_authors(raw: str | list[str] | None) -> list[str]:
     if raw is None:
         return []
     if isinstance(raw, list):
         items = raw
     else:
         items = re.split(r"[,\n]+", str(raw))
-    cleaned: List[str] = []
+    cleaned: list[str] = []
     for item in items:
         text = str(item).strip()
         if text:
@@ -718,16 +719,16 @@ def _load_voice_map(book_dir: Path, repo_root: Path) -> dict:
     )
 
 
-def _normalize_reading_overrides(raw: object) -> List[dict]:
+def _normalize_reading_overrides(raw: object) -> list[dict]:
     items = raw if isinstance(raw, list) else []
-    cleaned: List[dict] = []
+    cleaned: list[dict] = []
     for item in items:
         base = ""
         reading = ""
         pattern = ""
         regex = False
         mode = ""
-        case_sensitive: Optional[bool] = None
+        case_sensitive: bool | None = None
         if isinstance(item, dict):
             base = str(item.get("base") or "").strip()
             reading = str(
@@ -758,7 +759,7 @@ def _normalize_reading_overrides(raw: object) -> List[dict]:
             entry = {"pattern": base, "reading": reading}
         elif base:
             lowered = base.lower()
-            if lowered.startswith("re:") or lowered.startswith("regex:"):
+            if lowered.startswith(("re:", "regex:")):
                 prefix_len = 3 if lowered.startswith("re:") else 6
                 regex_pattern = base[prefix_len:].strip()
                 if not regex_pattern:
@@ -787,7 +788,7 @@ def _book_details(book_dir: Path, repo_root: Path) -> dict:
     source_origin = _source_origin_from_metadata(metadata)
 
     manifest = _load_json(book_dir / "tts" / "manifest.json")
-    chapters: List[dict] = []
+    chapters: list[dict] = []
     pad_ms = 0
     last_voice = ""
     audio_total, audio_done = _audio_progress_summary(book_dir, manifest)
@@ -857,7 +858,7 @@ def _boundary_latency_log_path(book_dir: Path) -> Path:
     return book_dir / "tts" / "player-boundary-latency.jsonl"
 
 
-def _append_jsonl(path: Path, entries: List[dict]) -> None:
+def _append_jsonl(path: Path, entries: list[dict]) -> None:
     if not entries:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -998,7 +999,7 @@ def _sanitize_playback(data: dict) -> dict:
     furthest = data.get("furthest_played")
     if not isinstance(furthest, int) or furthest < 0:
         furthest = None
-    bookmarks: List[dict] = []
+    bookmarks: list[dict] = []
     raw_marks = data.get("bookmarks")
     if isinstance(raw_marks, list):
         for entry in raw_marks:
@@ -1259,7 +1260,7 @@ def _ffmpeg_log_path(repo_root: Path) -> Path:
 
 def _spawn_ffmpeg_install(
     repo_root: Path,
-) -> tuple[Optional["FfmpegJob"], Optional[str]]:
+) -> tuple[FfmpegJob | None, str | None]:
     if shutil.which("ffmpeg") is not None:
         return None, None
     try:
@@ -1327,11 +1328,11 @@ class SynthJob:
     chunk_mode: str
     rechunk: bool
     mode: str = "tts"
-    sample_chapter_id: Optional[str] = None
-    sample_chapter_title: Optional[str] = None
-    log_handle: Optional[IO[str]] = None
-    exit_code: Optional[int] = None
-    ended_at: Optional[float] = None
+    sample_chapter_id: str | None = None
+    sample_chapter_title: str | None = None
+    log_handle: IO[str] | None = None
+    exit_code: int | None = None
+    ended_at: float | None = None
 
 
 @dataclass
@@ -1344,9 +1345,9 @@ class MergeJob:
     output_path: Path
     install_ffmpeg: bool
     progress_path: Path
-    log_handle: Optional[IO[str]] = None
-    exit_code: Optional[int] = None
-    ended_at: Optional[float] = None
+    log_handle: IO[str] | None = None
+    exit_code: int | None = None
+    ended_at: float | None = None
 
 
 @dataclass
@@ -1354,9 +1355,9 @@ class FfmpegJob:
     process: subprocess.Popen
     started_at: float
     log_path: Path
-    log_handle: Optional[IO[str]] = None
-    exit_code: Optional[int] = None
-    ended_at: Optional[float] = None
+    log_handle: IO[str] | None = None
+    exit_code: int | None = None
+    ended_at: float | None = None
 
 
 @dataclass
@@ -1369,7 +1370,7 @@ class VoiceClonePreview:
 
 class SynthRequest(BaseModel):
     book_id: str
-    voice: Optional[str] = None
+    voice: str | None = None
     max_chars: int = 400
     pad_ms: int = 300
     chunk_mode: str = "sentence"
@@ -1397,27 +1398,27 @@ class ClearRequest(BaseModel):
 
 
 class RulesPayload(BaseModel):
-    book_id: Optional[str] = None
-    drop_chapter_title_patterns: List[str] = []
-    section_cutoff_patterns: List[str] = []
-    remove_patterns: List[str] = []
+    book_id: str | None = None
+    drop_chapter_title_patterns: list[str] = []
+    section_cutoff_patterns: list[str] = []
+    remove_patterns: list[str] = []
     replace_defaults: bool = False
 
 
 class VoiceMapPayload(BaseModel):
-    default: Optional[str] = None
+    default: str | None = None
     chapters: dict = {}
 
 
 class ModelConfigPayload(BaseModel):
-    language: Optional[str] = None
-    layers: Optional[int] = None
+    language: str | None = None
+    layers: int | None = None
 
 
 class ChapterAction(BaseModel):
     book_id: str
     title: str
-    chapter_index: Optional[int] = None
+    chapter_index: int | None = None
 
 
 class SanitizeRequest(BaseModel):
@@ -1432,18 +1433,18 @@ class CleanEditPayload(BaseModel):
 
 class ReadingOverridesPayload(BaseModel):
     book_id: str
-    overrides: List[dict] = []
+    overrides: list[dict] = []
 
 
 class PlaybackPayload(BaseModel):
-    last_played: Optional[int] = None
-    furthest_played: Optional[int] = None
-    bookmarks: List[dict] = []
+    last_played: int | None = None
+    furthest_played: int | None = None
+    bookmarks: list[dict] = []
 
 
 class BoundaryLogPayload(BaseModel):
     book_id: str
-    entries: List[dict] = []
+    entries: list[dict] = []
 
 
 class DeleteBookRequest(BaseModel):
@@ -1456,32 +1457,32 @@ class DeleteM4bRequest(BaseModel):
 
 class MetadataPayload(BaseModel):
     book_id: str
-    title: Optional[str] = None
-    authors: Union[str, List[str], None] = None
-    year: Optional[str] = None
+    title: str | None = None
+    authors: str | list[str] | None = None
+    year: str | None = None
 
 
 class VoiceClonePreviewPayload(BaseModel):
     source: str
-    start: Optional[str] = None
-    duration: Union[str, float, int] = 12
+    start: str | None = None
+    duration: str | float | int = 12
 
 
 class VoiceCloneSavePayload(BaseModel):
     source: str
-    start: Optional[str] = None
-    duration: Union[str, float, int] = 12
-    name: Optional[str] = None
+    start: str | None = None
+    duration: str | float | int = 12
+    name: str | None = None
     overwrite: bool = False
-    gender: Optional[str] = None
-    language: Optional[str] = None
+    gender: str | None = None
+    language: str | None = None
 
 
 class VoiceMetadataPayload(BaseModel):
     voice: str
-    gender: Optional[str] = None
-    language: Optional[str] = None
-    name: Optional[str] = None
+    gender: str | None = None
+    language: str | None = None
+    name: str | None = None
 
 
 class VoiceDeletePayload(BaseModel):
@@ -1496,9 +1497,9 @@ def create_app(root_dir: Path) -> FastAPI:
     repo_root = _find_repo_root(root_dir)
     jobs: dict[str, SynthJob] = {}
     merge_jobs: dict[str, MergeJob] = {}
-    ffmpeg_job: Optional[FfmpegJob] = None
-    ffmpeg_error: Optional[str] = None
-    clone_preview: Optional[VoiceClonePreview] = None
+    ffmpeg_job: FfmpegJob | None = None
+    ffmpeg_error: str | None = None
+    clone_preview: VoiceClonePreview | None = None
 
     app.mount("/audio", StaticFiles(directory=str(root_dir)), name="audio")
 
@@ -1508,7 +1509,7 @@ def create_app(root_dir: Path) -> FastAPI:
 
     @app.get("/api/books")
     def list_books() -> JSONResponse:
-        books: List[dict] = []
+        books: list[dict] = []
         for child in sorted(root_dir.iterdir(), key=lambda p: p.name):
             if not child.is_dir():
                 continue
@@ -1770,7 +1771,7 @@ def create_app(root_dir: Path) -> FastAPI:
     def list_voices() -> JSONResponse:
         voices_dir = repo_root / "voices"
         voice_metadata = _load_voice_metadata(repo_root)
-        local: List[dict] = []
+        local: list[dict] = []
         if voices_dir.exists():
             for wav in sorted(voices_dir.glob("*.wav")):
                 try:
@@ -1858,7 +1859,7 @@ def create_app(root_dir: Path) -> FastAPI:
         if next_voice_value != voice_value:
             metadata.pop(voice_value, None)
 
-        gender: Optional[str]
+        gender: str | None
         if has_gender:
             try:
                 gender = _normalize_voice_gender(payload.gender)
@@ -1867,7 +1868,7 @@ def create_app(root_dir: Path) -> FastAPI:
         else:
             gender = _safe_voice_gender(existing.get("gender"))
 
-        language: Optional[str]
+        language: str | None
         if has_language:
             try:
                 language = _normalize_voice_language(payload.language)
@@ -2199,6 +2200,7 @@ def create_app(root_dir: Path) -> FastAPI:
                     cwd=str(repo_root),
                     stdout=log_handle,
                     stderr=subprocess.STDOUT,
+                    check=False,
                 )
                 if proc.returncode == 0:
                     stage = "sanitize"
@@ -2217,6 +2219,7 @@ def create_app(root_dir: Path) -> FastAPI:
                         cwd=str(repo_root),
                         stdout=log_handle,
                         stderr=subprocess.STDOUT,
+                        check=False,
                     )
             if proc.returncode != 0:
                 detail = (
@@ -2242,7 +2245,7 @@ def create_app(root_dir: Path) -> FastAPI:
 
     @app.get("/api/sanitize/preview")
     def sanitize_preview(
-        book_id: str, chapter: Optional[int] = None
+        book_id: str, chapter: int | None = None
     ) -> JSONResponse:
         book_dir = _resolve_book_dir(root_dir, book_id)
         clean_toc = _load_json(book_dir / "clean" / "toc.json")

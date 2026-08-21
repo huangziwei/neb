@@ -5,10 +5,10 @@ import re
 import shutil
 import time
 import warnings
+from collections.abc import Iterable
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
 
 from . import tts as tts_util
 from .text import read_clean_text
@@ -23,7 +23,7 @@ _PARAGRAPH_BREAK = "\n\n"
 _SECTION_BREAK = "\n\n\n"
 _TITLE_BREAK = "\n\n\n\n\n"
 
-DEFAULT_RULES: Dict[str, List[str]] = {
+DEFAULT_RULES: dict[str, list[str]] = {
     "drop_chapter_title_patterns": [
         r"^table of contents$",
         r"^contents$",
@@ -51,25 +51,25 @@ DEFAULT_RULES: Dict[str, List[str]] = {
         r"^\s*footnotes\s*$",
     ],
     "remove_patterns": [
-        r"\((?:[A-Z][A-Za-z'\-]+(?:\s+et\s+al\.)?|"
+        (r"\((?:[A-Z][A-Za-z'\-]+(?:\s+et\s+al\.)?|"
         r"[A-Z][A-Za-z'\-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'\-]+)?),"
         r"\s*(?:19|20)\d{2}[a-z]?(?:/(?:19|20)?\d{2}[a-z]?)?"
-        r"(?:,\s*(?:p{1,2}\.\s*)?\d+(?:\s*(?:-|\u2013)\s*\d+)?)?\)",
-        r"\((?:[A-Z][A-Za-z'\-]+(?:\s+et\s+al\.)?|"
+        r"(?:,\s*(?:p{1,2}\.\s*)?\d+(?:\s*(?:-|\u2013)\s*\d+)?)?\)"),
+        (r"\((?:[A-Z][A-Za-z'\-]+(?:\s+et\s+al\.)?|"
         r"[A-Z][A-Za-z'\-]+(?:\s+(?:and|&)\s+[A-Z][A-Za-z'\-]+)?)+"
         r"\s+(?:19|20)\d{2}[a-z]?(?:/(?:19|20)?\d{2}[a-z]?)?"
-        r"(?:,\s*(?:p{1,2}\.\s*)?\d+(?:\s*(?:-|\u2013)\s*\d+)?)?\)",
-        r"\([^)]*\[[^\]]*(?:19|20)\d{2}[a-z]?"
-        r"(?::\d+(?:\s*(?:-|\u2013)\s*\d+)?)?[^\]]*\][^)]*\)",
-        r"\([^)]*(?:19|20)\d{2}[a-z]?\s*:\s*\d+"
-        r"(?:\s*(?:-|\u2013)\s*\d+)?[^)]*\)",
-        r"\(\s*(?:19|20)\d{2}[a-z]?(?:/(?:19|20)?\d{2}[a-z]?)?"
-        r"\s*,\s*\d+(?:\s*(?:-|\u2013)\s*\d+)?\s*\)",
+        r"(?:,\s*(?:p{1,2}\.\s*)?\d+(?:\s*(?:-|\u2013)\s*\d+)?)?\)"),
+        (r"\([^)]*\[[^\]]*(?:19|20)\d{2}[a-z]?"
+        r"(?::\d+(?:\s*(?:-|\u2013)\s*\d+)?)?[^\]]*\][^)]*\)"),
+        (r"\([^)]*(?:19|20)\d{2}[a-z]?\s*:\s*\d+"
+        r"(?:\s*(?:-|\u2013)\s*\d+)?[^)]*\)"),
+        (r"\(\s*(?:19|20)\d{2}[a-z]?(?:/(?:19|20)?\d{2}[a-z]?)?"
+        r"\s*,\s*\d+(?:\s*(?:-|\u2013)\s*\d+)?\s*\)"),
         r"(?<=[A-Za-z])\s*\(\s*(?:19|20)\d{2}[a-z]?\s*\)",
-        r"\([^)]*(?:19|20)\d{2}[a-z]?\s*[,;][^)]*"
-        r"(?:19|20)\d{2}[a-z]?[^)]*\)",
-        r"\([^)]*(?:\bcf\.|\bsee\b|\be\.g\.)[^)]*"
-        r"(?:19|20)\d{2}[a-z]?[^)]*\)",
+        (r"\([^)]*(?:19|20)\d{2}[a-z]?\s*[,;][^)]*"
+        r"(?:19|20)\d{2}[a-z]?[^)]*\)"),
+        (r"\([^)]*(?:\bcf\.|\bsee\b|\be\.g\.)[^)]*"
+        r"(?:19|20)\d{2}[a-z]?[^)]*\)"),
         r"\(\s*ibid\.?(?:\s*:\s*\d+(?:\s*(?:-|\u2013)\s*\d+)?)?\s*\)",
         r"\[[0-9,\s-]+\]",
         r"\[[^\]]*(?:19|20)\d{2}[a-z]?[^\]]*\]",
@@ -91,6 +91,15 @@ _WORD_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|['\u2019\-]|\u0300-\u036F)*")
 _ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$")
 _SMALL_CAPS_MIN_WORDS = 2
 _ALL_CAPS_HEADING_MAX_WORDS = 8
+# Evidence thresholds for downcasing a *single* capitalized opening word, where
+# a stylized chapter opening and an acronym are otherwise indistinguishable.
+_SINGLE_OPENING_MIN_LOWERCASE = 3
+_SINGLE_OPENING_MAX_CAPS_SHARE = 1 / 3
+# Drop caps are a house style and repeat; an acronym opening a chapter does not.
+# Once enough chapters open the same way, one sighting in lowercase is enough.
+_STYLED_OPENING_MIN_CHAPTERS = 3
+_STYLED_OPENING_RELAXED_MIN_LOWERCASE = 1
+_STYLED_OPENING_SCAN_PARAGRAPHS = 3
 _SMALL_CAPS_ACRONYMS = {
     "abc",
     "bbc",
@@ -192,10 +201,10 @@ _VOWELS = set("aeiouyāīūṛṝḷḹ")
 
 @dataclass(frozen=True)
 class Ruleset:
-    drop_chapter_title_patterns: List[str]
-    section_cutoff_patterns: List[str]
-    remove_patterns: List[str]
-    source_path: Optional[Path] = None
+    drop_chapter_title_patterns: list[str]
+    section_cutoff_patterns: list[str]
+    remove_patterns: list[str]
+    source_path: Path | None = None
     replace_defaults: bool = False
 
 
@@ -213,7 +222,7 @@ class ChapterResult:
 
 
 def load_rules(
-    rules_path: Optional[Path] = None,
+    rules_path: Path | None = None,
 ) -> Ruleset:
     rules = deepcopy(DEFAULT_RULES)
     source_path = None
@@ -261,7 +270,7 @@ def format_title_chapter(metadata: dict) -> str:
     if author_line:
         author_line = f"by {author_line}"
 
-    lines: List[str] = []
+    lines: list[str] = []
     for block in (headline, author_line):
         if not block:
             continue
@@ -272,8 +281,8 @@ def format_title_chapter(metadata: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def compile_patterns(patterns: Iterable[str]) -> List[re.Pattern]:
-    compiled: List[re.Pattern] = []
+def compile_patterns(patterns: Iterable[str]) -> list[re.Pattern]:
+    compiled: list[re.Pattern] = []
     for pattern in patterns:
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -285,7 +294,7 @@ def compile_patterns(patterns: Iterable[str]) -> List[re.Pattern]:
     return compiled
 
 
-def _should_preserve_lines(lines: List[str]) -> bool:
+def _should_preserve_lines(lines: list[str]) -> bool:
     if len(lines) <= 1:
         return False
     for line in lines:
@@ -315,7 +324,7 @@ def _is_all_caps_word(word: str) -> bool:
 
 def _titlecase_token(word: str) -> str:
     parts = re.split(r"([\-'\u2019])", word)
-    out: List[str] = []
+    out: list[str] = []
     for part in parts:
         if part in {"-", "'", "\u2019"}:
             out.append(part)
@@ -335,21 +344,118 @@ def _variant_score(word: str) -> int:
     return 1
 
 
-def _build_case_map(text: str, extra_words: Iterable[str]) -> Dict[str, str]:
-    variants: Dict[str, Dict[str, int]] = {}
-    for source in [text, *extra_words]:
+@dataclass(frozen=True)
+class CaseStats:
+    """How the book itself writes each word.
+
+    A word the book never writes with lowercase letters is an acronym. A word it
+    writes in lowercase constantly and in capitals once is stylization. Keeping
+    both counts is what makes a lone capitalized opening word judgeable at all:
+    on its own, "ALTHOUGH I knew" and "NASA confirmed" look identical.
+    """
+
+    case_map: dict[str, str] = field(default_factory=dict)
+    lowercase_counts: dict[str, int] = field(default_factory=dict)
+    capitals_counts: dict[str, int] = field(default_factory=dict)
+    # Chapters that open with capitals the book usually writes in lowercase.
+    styled_openings: int = 0
+
+    def is_stylized_opening(self, word: str) -> bool:
+        """Is this lone capitalized word stylization rather than an acronym?"""
+        lower = word.lower()
+        if _should_preserve_caps_word(word, lower):
+            return False
+        if lower not in self.case_map:
+            # The book never writes it with lowercase letters — an acronym.
+            return False
+        seen_lowercase = self.lowercase_counts.get(lower, 0)
+        minimum = (
+            _STYLED_OPENING_RELAXED_MIN_LOWERCASE
+            if self.styled_openings >= _STYLED_OPENING_MIN_CHAPTERS
+            else _SINGLE_OPENING_MIN_LOWERCASE
+        )
+        if seen_lowercase < minimum:
+            return False
+        # Discount this occurrence itself. What separates the two cases is
+        # whether the capitalized form is used *elsewhere* too, as an acronym
+        # is and a one-off drop cap is not.
+        elsewhere_in_caps = max(self.capitals_counts.get(lower, 0) - 1, 0)
+        return elsewhere_in_caps <= seen_lowercase * _SINGLE_OPENING_MAX_CAPS_SHARE
+
+
+def _leading_caps_run(paragraph: str) -> tuple[list[re.Match], list[re.Match]]:
+    """The opening run of all-caps words, and every word match in the paragraph."""
+    matches = list(_WORD_RE.finditer(paragraph))
+    run: list[re.Match] = []
+    for match in matches:
+        if not _is_all_caps_word(match.group(0)):
+            break
+        run.append(match)
+    return run, matches
+
+
+def _run_is_followed_by_lowercase(run: list[re.Match], matches: list[re.Match]) -> bool:
+    if not run or len(run) >= len(matches):
+        return False
+    return _has_lowercase(matches[len(run)].group(0))
+
+
+def _opens_with_styled_capitals(text: str, case_map: dict[str, str]) -> bool:
+    """Does this chapter open with capitals the book elsewhere writes in lowercase?
+
+    Only the first few paragraphs are considered, so an all-caps heading ahead of
+    the body does not hide the opening it precedes.
+    """
+    for paragraph in text.lstrip().split("\n\n")[:_STYLED_OPENING_SCAN_PARAGRAPHS]:
+        run, matches = _leading_caps_run(paragraph)
+        if not _run_is_followed_by_lowercase(run, matches):
+            continue
+        return any(match.group(0).lower() in case_map for match in run)
+    return False
+
+
+def build_case_stats(
+    chapter_texts: Iterable[str], extra_words: Iterable[str] = ()
+) -> CaseStats:
+    """Tally how every word is cased across a whole book.
+
+    Passing all chapters rather than one is what gives the tally enough weight to
+    settle the acronym-versus-stylization question; a single chapter often does
+    not contain the lowercase form of its own opening word.
+    """
+    chapter_texts = list(chapter_texts)
+    variants: dict[str, dict[str, int]] = {}
+    lowercase_counts: dict[str, int] = {}
+    capitals_counts: dict[str, int] = {}
+    for source in [*chapter_texts, *extra_words]:
         for match in _WORD_RE.finditer(source):
             word = match.group(0)
-            if not _has_lowercase(word):
-                continue
             key = word.lower()
-            bucket = variants.setdefault(key, {})
-            bucket[word] = bucket.get(word, 0) + 1
-    case_map: Dict[str, str] = {}
+            if _has_lowercase(word):
+                bucket = variants.setdefault(key, {})
+                bucket[word] = bucket.get(word, 0) + 1
+                lowercase_counts[key] = lowercase_counts.get(key, 0) + 1
+            elif word.isupper():
+                capitals_counts[key] = capitals_counts.get(key, 0) + 1
+
+    case_map: dict[str, str] = {}
     for key, bucket in variants.items():
         best = max(bucket.items(), key=lambda item: (item[1], _variant_score(item[0])))
         case_map[key] = best[0]
-    return case_map
+
+    stats = CaseStats(
+        case_map=case_map,
+        lowercase_counts=lowercase_counts,
+        capitals_counts=capitals_counts,
+    )
+    openings = sum(
+        1 for text in chapter_texts if _opens_with_styled_capitals(text, case_map)
+    )
+    return replace(stats, styled_openings=openings)
+
+
+def _build_case_map(text: str, extra_words: Iterable[str]) -> dict[str, str]:
+    return build_case_stats([text], extra_words).case_map
 
 
 def _capitalize_mapped(word: str, is_first: bool) -> str:
@@ -369,13 +475,11 @@ def _should_preserve_caps_word(word: str, lower: str) -> bool:
         return True
     if len(word) <= 3:
         return True
-    if len(word) <= 4 and not any(ch in _VOWELS for ch in lower):
-        return True
-    return False
+    return bool(len(word) <= 4 and not any(ch in _VOWELS for ch in lower))
 
 
 def _normalize_small_caps_word(
-    word: str, case_map: Dict[str, str], is_first: bool
+    word: str, case_map: dict[str, str], is_first: bool
 ) -> str:
     lower = word.lower()
     mapped = case_map.get(lower)
@@ -390,45 +494,37 @@ def _normalize_small_caps_word(
     return _titlecase_token(word) if is_first else lower
 
 
-def _normalize_small_caps_paragraph(paragraph: str, case_map: Dict[str, str]) -> str:
+def _normalize_small_caps_paragraph(paragraph: str, stats: CaseStats) -> str:
     if not re.search(r"[a-z]", paragraph):
         return paragraph
-    matches = list(_WORD_RE.finditer(paragraph))
-    if not matches:
+    run, matches = _leading_caps_run(paragraph)
+    if not run:
         return paragraph
-
-    run: List[re.Match] = []
-    for match in matches:
-        word = match.group(0)
-        if not _is_all_caps_word(word):
-            break
-        run.append(match)
 
     if len(run) < _SMALL_CAPS_MIN_WORDS:
-        return paragraph
+        # A lone capitalized word is ambiguous by shape alone, so it is downcased
+        # only when the book's own usage says it is normally a lowercase word.
+        if not stats.is_stylized_opening(run[0].group(0)):
+            return paragraph
 
-    next_index = len(run)
-    if next_index >= len(matches):
-        return paragraph
-    next_word = matches[next_index].group(0)
-    if not _has_lowercase(next_word):
+    if not _run_is_followed_by_lowercase(run, matches):
         return paragraph
 
     has_signal = False
     for match in run:
         lower = match.group(0).lower()
-        if lower in case_map or lower in _SMALL_CAPS_STOPWORDS:
+        if lower in stats.case_map or lower in _SMALL_CAPS_STOPWORDS:
             has_signal = True
             break
     if not has_signal:
         return paragraph
 
-    pieces: List[str] = []
+    pieces: list[str] = []
     last = 0
     for idx, match in enumerate(run):
         pieces.append(paragraph[last : match.start()])
         replacement = _normalize_small_caps_word(
-            match.group(0), case_map=case_map, is_first=idx == 0
+            match.group(0), case_map=stats.case_map, is_first=idx == 0
         )
         pieces.append(replacement)
         last = match.end()
@@ -452,17 +548,27 @@ def _normalize_break_runs(text: str) -> str:
     return re.sub(r"\n{3,}", repl, text)
 
 
-def normalize_small_caps(text: str, extra_words: Optional[Iterable[str]] = None) -> str:
+def normalize_small_caps(
+    text: str,
+    extra_words: Iterable[str] | None = None,
+    case_stats: CaseStats | None = None,
+) -> str:
+    """Downcase stylized capitals at a paragraph opening.
+
+    Pass `case_stats` from `build_case_stats` over the whole book when one is
+    available; falling back to this chapter alone gives the acronym test much
+    less to go on.
+    """
     if not text:
         return text
-    case_map = _build_case_map(text, extra_words or [])
+    stats = case_stats or build_case_stats([text], extra_words or [])
     parts = re.split(r"(\n{2,})", text)
-    normalized_parts: List[str] = []
+    normalized_parts: list[str] = []
     for idx, part in enumerate(parts):
         if idx % 2 == 1:
             normalized_parts.append(_normalize_break_delimiter(part))
             continue
-        normalized_parts.append(_normalize_small_caps_paragraph(part, case_map))
+        normalized_parts.append(_normalize_small_caps_paragraph(part, stats))
     return "".join(normalized_parts)
 
 
@@ -477,7 +583,7 @@ def _is_all_caps_block(text: str) -> bool:
 
 
 def _normalize_all_caps_title_word(
-    word: str, case_map: Dict[str, str], is_first: bool
+    word: str, case_map: dict[str, str], is_first: bool
 ) -> str:
     lower = word.lower()
     mapped = case_map.get(lower)
@@ -491,7 +597,7 @@ def _normalize_all_caps_title_word(
 
 
 def _normalize_all_caps_sentence_word(
-    word: str, case_map: Dict[str, str], is_first: bool
+    word: str, case_map: dict[str, str], is_first: bool
 ) -> str:
     lower = word.lower()
     mapped = case_map.get(lower)
@@ -506,16 +612,16 @@ def _normalize_all_caps_sentence_word(
     return lower
 
 
-def _should_titlecase_all_caps_line(line: str, matches: List[re.Match]) -> bool:
+def _should_titlecase_all_caps_line(line: str, matches: list[re.Match]) -> bool:
     if re.search(r"[.!?]", line):
         return False
     return len(matches) <= _ALL_CAPS_HEADING_MAX_WORDS
 
 
 def _normalize_all_caps_title_line(
-    line: str, matches: List[re.Match], case_map: Dict[str, str]
+    line: str, matches: list[re.Match], case_map: dict[str, str]
 ) -> str:
-    pieces: List[str] = []
+    pieces: list[str] = []
     last = 0
     for idx, match in enumerate(matches):
         pieces.append(line[last : match.start()])
@@ -529,9 +635,9 @@ def _normalize_all_caps_title_line(
 
 
 def _normalize_all_caps_sentence_line(
-    line: str, matches: List[re.Match], case_map: Dict[str, str]
+    line: str, matches: list[re.Match], case_map: dict[str, str]
 ) -> str:
-    pieces: List[str] = []
+    pieces: list[str] = []
     last = 0
     sentence_start = True
     for idx, match in enumerate(matches):
@@ -548,7 +654,7 @@ def _normalize_all_caps_sentence_line(
     return "".join(pieces)
 
 
-def _normalize_all_caps_line(line: str, case_map: Dict[str, str]) -> str:
+def _normalize_all_caps_line(line: str, case_map: dict[str, str]) -> str:
     if not _is_all_caps_block(line):
         return line
     matches = list(_WORD_RE.finditer(line))
@@ -559,12 +665,17 @@ def _normalize_all_caps_line(line: str, case_map: Dict[str, str]) -> str:
     return _normalize_all_caps_sentence_line(line, matches, case_map)
 
 
-def normalize_all_caps(text: str, extra_words: Optional[Iterable[str]] = None) -> str:
+def normalize_all_caps(
+    text: str,
+    extra_words: Iterable[str] | None = None,
+    case_stats: CaseStats | None = None,
+) -> str:
     if not text:
         return text
-    case_map = _build_case_map(text, extra_words or [])
+    stats = case_stats or build_case_stats([text], extra_words or [])
+    case_map = stats.case_map
     parts = re.split(r"(\n{2,})", text)
-    normalized: List[str] = []
+    normalized: list[str] = []
     for idx, block in enumerate(parts):
         if idx % 2 == 1:
             normalized.append(_normalize_break_delimiter(block))
@@ -580,8 +691,37 @@ def normalize_all_caps(text: str, extra_words: Optional[Iterable[str]] = None) -
     return "".join(normalized)
 
 
-def _case_context_words(metadata: dict, chapter_title: str) -> List[str]:
-    extra: List[str] = []
+def _book_case_stats(book_dir: Path, toc: dict) -> CaseStats:
+    """Tally word casing across every raw chapter of the book.
+
+    Cutoff and removal rules are skipped on purpose: dropping a citation does not
+    change how the book spells a word, and reading the raw text keeps this a
+    single cheap pass.
+    """
+    metadata = toc.get("metadata", {}) if isinstance(toc, dict) else {}
+    chapters = toc.get("chapters", []) if isinstance(toc, dict) else []
+    texts: list[str] = []
+    extra = _case_context_words(metadata, "")
+    for entry in chapters:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        if title:
+            extra.append(title)
+        raw_rel = entry.get("path")
+        if not raw_rel:
+            continue
+        raw_path = book_dir / Path(str(raw_rel))
+        if not raw_path.exists():
+            continue
+        texts.append(
+            normalize_text(raw_path.read_text(encoding="utf-8"), unwrap_lines=False)
+        )
+    return build_case_stats(texts, extra)
+
+
+def _case_context_words(metadata: dict, chapter_title: str) -> list[str]:
+    extra: list[str] = []
     title = (
         str(metadata.get("title") or "").strip() if isinstance(metadata, dict) else ""
     )
@@ -621,7 +761,7 @@ def normalize_text(
 
     if unwrap_lines:
         parts = re.split(r"(\n{2,})", text)
-        normalized_parts: List[str] = []
+        normalized_parts: list[str] = []
         for idx, block in enumerate(parts):
             if idx % 2 == 1:
                 normalized_parts.append(_normalize_break_delimiter(block))
@@ -644,7 +784,7 @@ def normalize_text(
     return text.strip()
 
 
-def apply_section_cutoff(text: str, patterns: List[re.Pattern]) -> Tuple[str, str]:
+def apply_section_cutoff(text: str, patterns: list[re.Pattern]) -> tuple[str, str]:
     for pattern in patterns:
         match = pattern.search(text)
         if match:
@@ -653,16 +793,16 @@ def apply_section_cutoff(text: str, patterns: List[re.Pattern]) -> Tuple[str, st
 
 
 def apply_remove_patterns(
-    text: str, patterns: List[re.Pattern]
-) -> Tuple[str, Dict[str, int]]:
-    stats: Dict[str, int] = {}
+    text: str, patterns: list[re.Pattern]
+) -> tuple[str, dict[str, int]]:
+    stats: dict[str, int] = {}
     for pattern in patterns:
         text, count = pattern.subn("", text)
         stats[pattern.pattern] = stats.get(pattern.pattern, 0) + count
     return text, stats
 
 
-def should_drop_title(title: str, patterns: List[re.Pattern]) -> str:
+def should_drop_title(title: str, patterns: list[re.Pattern]) -> str:
     for pattern in patterns:
         if pattern.search(title):
             return pattern.pattern
@@ -671,7 +811,7 @@ def should_drop_title(title: str, patterns: List[re.Pattern]) -> str:
 
 def sanitize_book(
     book_dir: Path,
-    rules_path: Optional[Path] = None,
+    rules_path: Path | None = None,
     overwrite: bool = False,
 ) -> int:
     toc_path = book_dir / "toc.json"
@@ -709,11 +849,13 @@ def sanitize_book(
     if not isinstance(chapters, list):
         raise ValueError("Invalid toc.json: chapters must be a list.")
 
+    case_stats = _book_case_stats(book_dir, toc)
+
     clean_dir.mkdir(parents=True, exist_ok=True)
-    report_entries: List[ChapterResult] = []
-    pattern_stats: Dict[str, int] = {}
+    report_entries: list[ChapterResult] = []
+    pattern_stats: dict[str, int] = {}
     dropped = 0
-    clean_entries: List[dict] = []
+    clean_entries: list[dict] = []
 
     source_epub = str(toc.get("source_epub", "")) if isinstance(toc, dict) else ""
     source_suffix = Path(source_epub).suffix.lower()
@@ -786,9 +928,8 @@ def sanitize_book(
             cleaned,
             unwrap_lines=False,
         )
-        case_words = _case_context_words(metadata, title)
-        cleaned = normalize_small_caps(cleaned, extra_words=case_words)
-        cleaned = normalize_all_caps(cleaned, extra_words=case_words)
+        cleaned = normalize_small_caps(cleaned, case_stats=case_stats)
+        cleaned = normalize_all_caps(cleaned, case_stats=case_stats)
 
         clean_path.write_text(cleaned + "\n", encoding="utf-8")
 
@@ -910,7 +1051,7 @@ def _write_json(path: Path, payload: dict) -> None:
     )
 
 
-def _reindex_clean_entries(entries: List[dict]) -> None:
+def _reindex_clean_entries(entries: list[dict]) -> None:
     for idx, entry in enumerate(entries, start=1):
         entry["index"] = idx
 
@@ -931,8 +1072,8 @@ def _update_report(
     dropped: bool,
     drop_reason: str = "",
     cutoff_reason: str = "",
-    raw_chars: Optional[int] = None,
-    clean_chars: Optional[int] = None,
+    raw_chars: int | None = None,
+    clean_chars: int | None = None,
 ) -> None:
     report_path = book_dir / "clean" / "report.json"
     if not report_path.exists():
@@ -997,7 +1138,7 @@ def _drop_tts_chapter(book_dir: Path, chapter_id: str) -> None:
 def drop_chapter(
     book_dir: Path,
     title: str,
-    chapter_index: Optional[int] = None,
+    chapter_index: int | None = None,
 ) -> bool:
     clean_toc_path = book_dir / "clean" / "toc.json"
     if not clean_toc_path.exists():
@@ -1056,8 +1197,8 @@ def drop_chapter(
 def restore_chapter(
     book_dir: Path,
     title: str,
-    chapter_index: Optional[int] = None,
-    rules_path: Optional[Path] = None,
+    chapter_index: int | None = None,
+    rules_path: Path | None = None,
 ) -> bool:
     toc_path = book_dir / "toc.json"
     if not toc_path.exists():
@@ -1113,10 +1254,9 @@ def restore_chapter(
         cleaned,
         unwrap_lines=False,
     )
-    metadata = toc.get("metadata", {}) if isinstance(toc, dict) else {}
-    case_words = _case_context_words(metadata, raw_title)
-    cleaned = normalize_small_caps(cleaned, extra_words=case_words)
-    cleaned = normalize_all_caps(cleaned, extra_words=case_words)
+    case_stats = _book_case_stats(book_dir, toc)
+    cleaned = normalize_small_caps(cleaned, case_stats=case_stats)
+    cleaned = normalize_all_caps(cleaned, case_stats=case_stats)
 
     clean_dir = book_dir / "clean" / "chapters"
     clean_dir.mkdir(parents=True, exist_ok=True)
