@@ -531,6 +531,9 @@ def test_model_config_defaults_from_toc_language(tmp_path: Path) -> None:
     assert body["options"]["layers"] == [6, 24]
     assert "german" in body["options"]["languages"]
     assert body["options"]["language_display_names"]["german"] == "German"
+    assert body["config"]["emotion"] == "calm"
+    assert body["options"]["emotions"] == ["normal", "calm"]
+    assert body["options"]["emotion_display_names"]["calm"] == "Calm"
     assert not (book_dir / "model-config.json").exists()
 
 
@@ -542,15 +545,16 @@ def test_model_config_persists_overrides(tmp_path: Path) -> None:
 
     resp = client.post(
         "/api/books/book-de/model-config",
-        json={"language": "german", "layers": 6},
+        json={"language": "german", "layers": 6, "emotion": "normal"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["config"]["language"] == "german"
     assert body["config"]["layers"] == 6
+    assert body["config"]["emotion"] == "normal"
 
     stored = json.loads((book_dir / "model-config.json").read_text(encoding="utf-8"))
-    assert stored == {"language": "german", "layers": 6}
+    assert stored == {"language": "german", "layers": 6, "emotion": "normal"}
 
     reload = client.get("/api/books/book-de/model-config")
     assert reload.json()["config"] == body["config"]
@@ -649,6 +653,116 @@ def test_model_config_preserves_cache_when_unchanged(tmp_path: Path) -> None:
     assert manifest_path.exists()
 
 
+def test_model_config_emotion_change_preserves_cache(tmp_path: Path) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
+    tts_dir = book_dir / "tts"
+    seg_dir = tts_dir / "segments"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    (seg_dir / "dummy.wav").write_bytes(b"x")
+    manifest_path = tts_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "voice": "voices/ray.wav",
+                "language": "german",
+                "layers": 24,
+                "emotion": "calm",
+                "chapters": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/books/book-de/model-config",
+        json={"language": "german", "layers": 24, "emotion": "normal"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["config"]["emotion"] == "normal"
+    assert body["cache_cleared"] is False
+    assert seg_dir.exists()
+    assert manifest_path.exists()
+
+
+class _FakeProcess:
+    """Stand-in for the spawned `neb synth` subprocess."""
+
+    returncode = None
+
+    def poll(self) -> None:
+        return None
+
+
+def test_synth_start_passes_book_emotion_to_the_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-en", "en")
+    voices_dir = repo_root / "voices"
+    voices_dir.mkdir()
+    (voices_dir / "ray.wav").write_bytes(b"RIFF")
+    (book_dir / "model-config.json").write_text(
+        json.dumps({"language": "english", "layers": 6, "emotion": "normal"}),
+        encoding="utf-8",
+    )
+
+    commands: list[list[str]] = []
+
+    def fake_popen(cmd, **_kwargs):
+        commands.append(list(cmd))
+        return _FakeProcess()
+
+    monkeypatch.setattr(player.shutil, "which", lambda _name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(player.subprocess, "Popen", fake_popen)
+
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+    resp = client.post("/api/synth/start", json={"book_id": "book-en"})
+
+    assert resp.status_code == 200
+    assert len(commands) == 1
+    cmd = commands[0]
+    assert cmd[cmd.index("--emotion") + 1] == "normal"
+
+
+def test_synth_chunk_passes_book_emotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _repo_root, root_dir = _make_repo(tmp_path)
+    book_dir = _make_book_with_language(root_dir, "book-en", "en")
+    tts_dir = book_dir / "tts"
+    tts_dir.mkdir(parents=True, exist_ok=True)
+    (tts_dir / "manifest.json").write_text(
+        json.dumps({"voice": "voices/ray.wav", "chapters": []}), encoding="utf-8"
+    )
+    (book_dir / "model-config.json").write_text(
+        json.dumps({"language": "english", "layers": 6, "emotion": "normal"}),
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    def fake_synthesize_chunk(**kwargs):
+        captured.update(kwargs)
+        return {"chapter_id": kwargs["chapter_id"], "chunk_index": 0, "duration_ms": 1}
+
+    monkeypatch.setattr(player.tts_util, "synthesize_chunk", fake_synthesize_chunk)
+
+    app = player.create_app(root_dir)
+    client = TestClient(app)
+    resp = client.post(
+        "/api/synth/chunk",
+        json={"book_id": "book-en", "chapter_id": "0001-test", "chunk_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert captured["emotion"] == "normal"
+
+
 def test_book_details_surfaces_model_config_and_manifest_model(tmp_path: Path) -> None:
     repo_root, root_dir = _make_repo(tmp_path)
     book_dir = _make_book_with_language(root_dir, "book-de", "de-DE")
@@ -671,6 +785,7 @@ def test_book_details_surfaces_model_config_and_manifest_model(tmp_path: Path) -
     assert book["language_display"] == "German"
     assert book["model_config"]["language"] == "german"
     assert book["model_config"]["layers"] == 24
+    assert book["model_config"]["emotion"] == "calm"
     assert book["manifest_model"] == {
         "language": "german",
         "layers": 24,

@@ -53,6 +53,11 @@ uv run neb synth \
   --pad-ms 300
 ```
 
+pocket-tts has no style controls, so punctuation is what steers delivery — a
+line ending in `!` gets performed. neb therefore trades exclamation marks for
+full stops by default. Pass `--emotion normal` (or pick **Normal** under
+**Emotion** in the web app, per book) to send the text through untouched.
+
 #### 4) Merge to M4B
 ```bash
 uv run neb merge \

@@ -69,8 +69,7 @@ class UnsupportedLanguageError(ValueError):
 def normalize_language_tag(tag: str | None) -> str:
     """Map a raw dc:language tag to a pocket-tts language name.
 
-    Empty/missing inputs fall back to DEFAULT_LANGUAGE.
-    Raises UnsupportedLanguageError for codes outside pocket-tts' six languages.
+    Empty input falls back to DEFAULT_LANGUAGE; an unsupported code raises.
     """
     if not tag:
         return DEFAULT_LANGUAGE
@@ -103,10 +102,9 @@ def display_name(pocket_tts_language: str | None) -> str:
 
 
 def resolve_language(tag: str | None) -> str:
-    """Normalize a raw language tag, falling back to DEFAULT_LANGUAGE if unsupported.
+    """Normalize a raw language tag, falling back to DEFAULT_LANGUAGE.
 
-    Use this in display paths (e.g. player) where an unknown code should
-    degrade gracefully rather than raise.
+    For display paths where an unknown code should degrade rather than raise.
     """
     try:
         return normalize_language_tag(tag)
@@ -148,19 +146,13 @@ def resolve_model_id(language: str, layers: int | None = None) -> str:
     return model_id
 
 
-# pocket-tts model id -> maneko config stem. They are identical for every
-# language/layer pair except English, where maneko's validated default checkpoint
-# is the dated stem `english_2026-04`.
+# pocket-tts model id -> maneko config stem; identical except for English.
 _POCKET_ID_TO_MANEKO_STEM: dict[str, str] = {
     "english": "english_2026-04",
 }
 
 
 def resolve_maneko_language(language: str, layers: int | None = None) -> str:
-    """Return the maneko config stem for a (language, layers) pair.
-
-    Built on top of `resolve_model_id`, so it inherits the same ISO-tag handling
-    and layer fallbacks. Identity for all stems except `english`.
-    """
+    """Return the maneko config stem for a (language, layers) pair."""
     model_id = resolve_model_id(language, layers)
     return _POCKET_ID_TO_MANEKO_STEM.get(model_id, model_id)

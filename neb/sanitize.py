@@ -348,10 +348,7 @@ def _variant_score(word: str) -> int:
 class CaseStats:
     """How the book itself writes each word.
 
-    A word the book never writes with lowercase letters is an acronym. A word it
-    writes in lowercase constantly and in capitals once is stylization. Keeping
-    both counts is what makes a lone capitalized opening word judgeable at all:
-    on its own, "ALTHOUGH I knew" and "NASA confirmed" look identical.
+    A word never written in lowercase is an acronym, not stylization.
     """
 
     case_map: dict[str, str] = field(default_factory=dict)
@@ -376,9 +373,7 @@ class CaseStats:
         )
         if seen_lowercase < minimum:
             return False
-        # Discount this occurrence itself. What separates the two cases is
-        # whether the capitalized form is used *elsewhere* too, as an acronym
-        # is and a one-off drop cap is not.
+        # Discounting this occurrence: an acronym also appears in caps elsewhere.
         elsewhere_in_caps = max(self.capitals_counts.get(lower, 0) - 1, 0)
         return elsewhere_in_caps <= seen_lowercase * _SINGLE_OPENING_MAX_CAPS_SHARE
 
@@ -403,8 +398,7 @@ def _run_is_followed_by_lowercase(run: list[re.Match], matches: list[re.Match]) 
 def _opens_with_styled_capitals(text: str, case_map: dict[str, str]) -> bool:
     """Does this chapter open with capitals the book elsewhere writes in lowercase?
 
-    Only the first few paragraphs are considered, so an all-caps heading ahead of
-    the body does not hide the opening it precedes.
+    Only the first few paragraphs count, so a heading cannot hide the opening.
     """
     for paragraph in text.lstrip().split("\n\n")[:_STYLED_OPENING_SCAN_PARAGRAPHS]:
         run, matches = _leading_caps_run(paragraph)
@@ -419,9 +413,7 @@ def build_case_stats(
 ) -> CaseStats:
     """Tally how every word is cased across a whole book.
 
-    Passing all chapters rather than one is what gives the tally enough weight to
-    settle the acronym-versus-stylization question; a single chapter often does
-    not contain the lowercase form of its own opening word.
+    Pass all chapters: one alone rarely contains both forms of a word.
     """
     chapter_texts = list(chapter_texts)
     variants: dict[str, dict[str, int]] = {}
@@ -556,9 +548,7 @@ def normalize_small_caps(
 ) -> str:
     """Downcase stylized capitals at a paragraph opening.
 
-    Pass `case_stats` from `build_case_stats` over the whole book when one is
-    available; falling back to this chapter alone gives the acronym test much
-    less to go on.
+    Pass whole-book `case_stats` when available; this chapter alone is weaker.
     """
     if not text:
         return text
@@ -695,9 +685,7 @@ def normalize_all_caps(
 def _book_case_stats(book_dir: Path, toc: dict) -> CaseStats:
     """Tally word casing across every raw chapter of the book.
 
-    Cutoff and removal rules are skipped on purpose: dropping a citation does not
-    change how the book spells a word, and reading the raw text keeps this a
-    single cheap pass.
+    Cutoff and removal rules are skipped: they do not change a word's spelling.
     """
     metadata = toc.get("metadata", {}) if isinstance(toc, dict) else {}
     chapters = toc.get("chapters", []) if isinstance(toc, dict) else []

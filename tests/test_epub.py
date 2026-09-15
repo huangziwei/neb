@@ -504,10 +504,8 @@ def test_chapters_from_toc_entries_single_file_chapters_unaffected() -> None:
 
 
 def test_chapters_from_toc_entries_merges_non_split_multi_file_chapters() -> None:
-    """A chapter whose TOC anchor is a title-only page followed by several
-    body files with arbitrary (non-split) names should capture every spine
-    item up to the next TOC anchor. Mirrors trade EPUBs that give each section
-    its own file (e.g. c3W.xhtml -> c45.xhtml, c4J.xhtml ... -> cUP.xhtml)."""
+    """A title-only TOC anchor takes every spine item up to the next anchor,
+    even when the body files have arbitrary names."""
     items = [
         _FakeDocumentItem(
             "cA.html", "", b"<html><body><h1>I : Challenge</h1></body></html>", "cA"

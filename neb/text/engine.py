@@ -1,21 +1,6 @@
 """The language-agnostic normalization pipeline.
 
-Every lexical transform lives here once and reads its vocabulary from a
-`LanguageProfile`. The regexes each profile implies are compiled once and
-cached, so a chapter pays the build cost a single time.
-
-Pipeline order matters and is fixed by `normalize_lexical`:
-
-  1. profile pre-hooks        — e.g. English URL spelling-out, before dots move
-  2. abbreviations            — expand or de-dot, so the chunker sees no false
-                                sentence ends
-  3. era markers              — "B.C." before dotted initialisms claim it
-  4. Roman numerals           — while headings still carry their labels
-  5. currency and quantities  — consume digits that carry a noun, so a price
-                                like "1500 Euro" never reaches the year rule
-  6. symbols, fractions, times
-  7. numbers                  — everything still written in digits
-  8. profile post-hooks
+The step order fixed by `normalize_lexical` is load-bearing.
 """
 from __future__ import annotations
 
@@ -28,8 +13,7 @@ from re import Pattern
 from . import numbers
 from .profile import LanguageProfile, SpokenNoun
 
-# Punctuation that may trail a heading numeral. Mirrors the sets in common.py;
-# kept local so the Roman-numeral trail test stays a concern of this module.
+# Punctuation that may trail a heading numeral; local to the Roman rule.
 _HEADING_TRAIL_PUNCT = (
     {".", "!", "?"} | {",", ";", ":"} | set("\"')]}" + "”’") | {"-", "–", "—"}
 )
@@ -363,8 +347,7 @@ def _spoken_quantity(
 ) -> str:
     """Render "<amount> [scale] [noun]" with the right number and noun forms.
 
-    A magnitude word always pluralizes the noun that follows it — "$1 billion"
-    is "one billion dollars", never "one billion dollar".
+    A magnitude word always pluralizes the noun that follows it.
     """
     _, int_part, frac = _amount_parts(amount, profile)
     singular = _is_one(int_part, frac)
@@ -591,8 +574,7 @@ def normalize_currency(text: str, profile: LanguageProfile) -> str:
 def normalize_quantities(text: str, profile: LanguageProfile) -> str:
     """Convert "1500 Euro" / "3 Millionen Menschen" while the noun is visible.
 
-    Running before the year rule is what keeps a price from being read as a
-    date: by the time years are considered, these digits are already words.
+    Must run before the year rule, or a price is read as a date.
     """
     if not text:
         return text

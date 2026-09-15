@@ -30,6 +30,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from . import emotion as emotion_util
 from . import language as language_util
 from .text import prepare_tts_text, read_clean_text
 from .text.common import (
@@ -81,9 +82,7 @@ def _repo_root() -> Path:
 def _ensure_hf_home() -> None:
     """Default HF_HOME to the repo-local cache so weights land in ./.cache/.
 
-    maneko (and pocket-tts) resolve weights via HF_HOME; pointing it at the
-    repo's .cache/huggingface keeps everything self-contained. An explicit
-    HF_HOME in the environment always wins.
+    An explicit HF_HOME in the environment always wins.
     """
     if not os.environ.get("HF_HOME"):
         os.environ["HF_HOME"] = str(_repo_root() / ".cache" / "huggingface")
@@ -93,12 +92,7 @@ def _ensure_hf_home() -> None:
 def _ensure_hf_token_visible() -> None:
     """Keep `hf auth login` working under a redirected HF_HOME.
 
-    huggingface_hub looks for the auth token at $HF_HOME/token, so the repo-local
-    HF_HOME hides a user-level login — and the gated kyutai/pocket-tts weights
-    (required for voice cloning on the torch backend) then fail to download.
-    Export HF_TOKEN from the user-level token when the active HF_HOME has none.
-    (HF_TOKEN is re-read on every hub call; HF_TOKEN_PATH would be a no-op here
-    because huggingface_hub freezes it at import time.)
+    huggingface_hub reads its token from $HF_HOME/token, which this one hides.
     """
     if os.environ.get("HF_TOKEN") or os.environ.get("HF_TOKEN_PATH"):
         return
@@ -848,9 +842,7 @@ def tensor_to_int16(audio: torch.Tensor) -> torch.Tensor:
 def floats_to_int16(samples: Sequence[float]) -> np.ndarray:
     """Convert mono float audio (maneko's `list[float]`, ~[-1, 1]) to int16.
 
-    Mirrors `tensor_to_int16`'s heuristic: if the peak looks like normalized
-    float audio, scale by 32767; otherwise assume the values are already in
-    int16 range.
+    Like `tensor_to_int16`: a normalized peak is scaled, otherwise left as is.
     """
     a = np.asarray(samples, dtype=np.float32).reshape(-1)
     if a.size == 0:
@@ -880,11 +872,8 @@ def write_wav_mono_16k_or_24k(
 
 
 # --- TTS backends --------------------------------------------------------------
-# A thin interface over the inference engine so the synth pipeline is engine
-# agnostic. The default is platform-aware (see _default_backend_name): torch on
-# Apple Silicon, maneko (native Rust/candle q8) everywhere else. Both return mono
-# int16 numpy arrays; audio assembly (concat + pause padding) is done in numpy by
-# the callers.
+# A thin interface over the inference engine. Both backends return mono int16
+# numpy arrays; concat and pause padding happen in numpy in the callers.
 
 
 class _TTSBackend:
@@ -996,9 +985,7 @@ def _make_backend(name: str) -> _TTSBackend:
 def _default_backend_name() -> str:
     """Platform-aware default backend when NEB_TTS_BACKEND is unset.
 
-    Apple Silicon prefers torch (its Accelerate/AMX GEMMs beat maneko's q8 NEON
-    kernels there; pyproject installs it by default on that platform). Everywhere
-    else maneko is the fast native path.
+    Apple Silicon prefers torch; elsewhere maneko is the fast native path.
     """
     if sys.platform == "darwin" and platform.machine() == "arm64":
         if torch is not None and TTSModel is not None:
@@ -1022,9 +1009,7 @@ def _resolve_backend_name() -> str:
 def get_backend() -> _TTSBackend:
     """Return the configured TTS backend (cached per concrete engine).
 
-    Selected by NEB_TTS_BACKEND: 'maneko', 'torch', or 'auto' (torch if installed,
-    else maneko). Unset picks a platform default: torch on Apple Silicon, maneko
-    elsewhere. Re-reads the env each call so callers/tests can switch.
+    NEB_TTS_BACKEND selects it and is re-read each call, so tests can switch.
     """
     _ensure_hf_home()
     name = _resolve_backend_name()
@@ -1106,9 +1091,11 @@ def prepare_manifest(
     rechunk: bool,
     language: str | None = None,
     layers: int | None = None,
+    emotion: str | None = None,
 ) -> tuple[dict[str, Any], list[list[str]], int]:
     language = language_util.normalize_language_tag(language)
     layers = language_util.resolve_layers(language, layers)
+    emotion = emotion_util.resolve_emotion(emotion)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = out_dir / "manifest.json"
     chunk_root = out_dir / "chunks"
@@ -1211,6 +1198,7 @@ def prepare_manifest(
             "voice": voice,
             "language": language,
             "layers": int(layers),
+            "emotion": emotion,
             "max_chars": int(max_chars),
             "pad_ms": int(pad_ms),
             "chunk_mode": chunk_mode,
@@ -1221,6 +1209,7 @@ def prepare_manifest(
     manifest["voice"] = voice
     manifest["language"] = language
     manifest["layers"] = int(layers)
+    manifest["emotion"] = emotion
     manifest["max_chars"] = int(max_chars)
     manifest["pad_ms"] = int(manifest.get("pad_ms", pad_ms))
     manifest["chunk_mode"] = chunk_mode
@@ -1330,10 +1319,12 @@ def synthesize(
     base_dir: Path | None = None,
     language: str | None = None,
     layers: int | None = None,
+    emotion: str | None = None,
 ) -> int:
     backend = get_backend()
     language = language_util.normalize_language_tag(language)
     layers = language_util.resolve_layers(language, layers)
+    emotion = emotion_util.resolve_emotion(emotion)
 
     if base_dir is None:
         base_dir = Path.cwd()
@@ -1383,6 +1374,7 @@ def synthesize(
             rechunk=rechunk,
             language=language,
             layers=layers,
+            emotion=emotion,
         )
     except ValueError as exc:
         sys.stderr.write(f"{exc}\n")
@@ -1521,6 +1513,7 @@ def synthesize(
                     chunk_text,
                     chapter_reading_map.get(chapter_id, []),
                     language=language,
+                    emotion=emotion,
                 )
                 if not tts_text.strip():
                     sys.stderr.write(
@@ -1608,6 +1601,7 @@ def synthesize_chunk(
     voice: str | None = None,
     voice_map_path: Path | None = None,
     base_dir: Path | None = None,
+    emotion: str | None = None,
 ) -> dict:
     backend = get_backend()
     if base_dir is None:
@@ -1721,6 +1715,10 @@ def synthesize_chunk(
     voice_prompt = resolve_voice_prompt(voice_id, base_dir=base_dir)
     language = manifest.get("language")
     layers = manifest.get("layers")
+    # No caller preference means re-render the way the book was synthesized.
+    emotion = emotion_util.resolve_emotion(
+        emotion if emotion is not None else manifest.get("emotion")
+    )
     sample_rate = backend.sample_rate(language, layers)
     if manifest.get("sample_rate") != sample_rate:
         manifest["sample_rate"] = sample_rate
@@ -1749,6 +1747,7 @@ def synthesize_chunk(
         chunk_text,
         merged_reading_overrides,
         language=manifest.get("language") or "english",
+        emotion=emotion,
     )
     seg_path = out_dir / "segments" / chapter_id / f"{chunk_index + 1:06d}.wav"
     seg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1812,6 +1811,7 @@ def synthesize_text(
     base_dir: Path | None = None,
     language: str | None = None,
     layers: int | None = None,
+    emotion: str | None = None,
 ) -> int:
     chapters = load_text_chapters(text_path)
     return synthesize(
@@ -1827,6 +1827,7 @@ def synthesize_text(
         base_dir=base_dir,
         language=language,
         layers=layers,
+        emotion=emotion,
     )
 
 
@@ -1842,6 +1843,7 @@ def synthesize_book(
     base_dir: Path | None = None,
     language: str | None = None,
     layers: int | None = None,
+    emotion: str | None = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -1866,6 +1868,7 @@ def synthesize_book(
             base_dir=base_dir,
             language=resolved_language,
             layers=layers,
+            emotion=emotion,
         )
     except Exception as exc:
         # Leave a machine-readable trace for the player UI; the traceback still
@@ -1886,6 +1889,7 @@ def synthesize_book_sample(
     base_dir: Path | None = None,
     language: str | None = None,
     layers: int | None = None,
+    emotion: str | None = None,
 ) -> int:
     if out_dir is None:
         out_dir = book_dir / "tts"
@@ -1937,6 +1941,7 @@ def synthesize_book_sample(
             base_dir=base_dir,
             language=language or _resolve_book_language(book_dir),
             layers=layers,
+            emotion=emotion,
         )
     except Exception as exc:
         # Leave a machine-readable trace for the player UI; the traceback still
@@ -2003,6 +2008,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[6, 24],
         help="Flow-LM transformer layer count (6=fast, 24=higher quality)",
     )
+    ap.add_argument(
+        "--emotion",
+        choices=sorted(emotion_util.EMOTIONS),
+        help=(
+            "Delivery mode: calm trades exclamation marks for full stops "
+            f"(default: {emotion_util.DEFAULT_EMOTION})"
+        ),
+    )
     return ap
 
 
@@ -2021,6 +2034,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             voice_map_path=args.voice_map,
             language=args.language,
             layers=args.layers,
+            emotion=args.emotion,
         )
     if not args.out:
         parser.error("--out is required when using --text")
@@ -2035,6 +2049,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         voice_map_path=args.voice_map,
         language=args.language,
         layers=args.layers,
+        emotion=args.emotion,
     )
 
 

@@ -1,8 +1,6 @@
 """Cross-language tests for the shared normalization engine.
 
-Per-language depth lives in the language test modules; this file covers the
-behaviour every profile is supposed to share, and the smoke coverage for the
-four languages beyond English and German.
+Per-language depth lives in the language test modules.
 """
 from __future__ import annotations
 

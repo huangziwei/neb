@@ -746,10 +746,8 @@ def html_to_text(
             tag.decompose()
     root = soup.body if soup.body else soup
 
-    # Keep semantic text blocks; skip container divs so nested headings/paragraphs
-    # retain their own boundaries.
-    # Blockquote is a container that can hold other blocks; treat it specially
-    # so its children preserve their paragraph boundaries.
+    # Keep semantic text blocks; skip container divs so nested headings and
+    # paragraphs keep their own boundaries. Blockquote is a container too.
     block_tags = {"p", "li", "blockquote", "pre", *_HEADING_TAGS}
     _leaf_block_tags = block_tags - {"blockquote"}
 
@@ -898,10 +896,8 @@ def _chapters_from_toc_entries(
         start_idx = spine_index.get(base_href)
         merged_items: list[object] = []
         if start_idx is not None:
-            # A TOC marks where a chapter starts in reading order; the chapter
-            # runs up to the next TOC entry's spine position (or the end of the
-            # spine). Everything between two consecutive TOC anchors belongs to
-            # the earlier chapter.
+            # A chapter runs from its TOC anchor to the next one (or the end
+            # of the spine); everything between belongs to the earlier chapter.
             next_toc_idx = len(spine_items)
             for ti in toc_spine_indices:
                 if ti > start_idx:
@@ -937,10 +933,8 @@ def _chapters_from_toc_entries(
                 if len(candidate) > 1:
                     merged_items = candidate
 
-            # General case: a chapter whose body spans several spine files that
-            # are not split-series siblings (e.g. one file per section, as many
-            # trade EPUBs are laid out). Capture every spine item up to the next
-            # TOC boundary so the content is not left orphaned.
+            # A chapter body can span several spine files that are not
+            # split-series siblings; take every item up to the TOC boundary.
             if not merged_items and next_toc_idx > start_idx + 1:
                 merged_items = [
                     item for _href, item in spine_items[start_idx:next_toc_idx]

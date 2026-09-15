@@ -1,8 +1,6 @@
 """French profile.
 
-French groups thousands with a space rather than a separator character, so a
-pre-hook first folds the typographic spaces publishers use (no-break, narrow
-no-break, thin) down to the plain space the shared amount pattern expects.
+A pre-hook folds typographic spaces so the amount pattern sees plain ones.
 """
 from __future__ import annotations
 

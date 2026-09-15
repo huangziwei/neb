@@ -814,6 +814,50 @@ def test_prepare_manifest_stores_language_default(tmp_path: Path) -> None:
     assert manifest["language"] == "english"
 
 
+def test_prepare_manifest_stores_emotion_default(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Hello world",
+        path=None,
+    )
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=tmp_path / "out",
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+    )
+    assert manifest["emotion"] == "calm"
+
+
+def test_prepare_manifest_stores_explicit_emotion(tmp_path: Path) -> None:
+    chapter = tts.ChapterInput(
+        index=1,
+        id="0001-test",
+        title="Test",
+        text="Hello world",
+        path=None,
+    )
+    out_dir = tmp_path / "out"
+    manifest, _chunks, _pad_ms = tts.prepare_manifest(
+        chapters=[chapter],
+        out_dir=out_dir,
+        voice="voice.wav",
+        max_chars=50,
+        pad_ms=300,
+        chunk_mode="sentence",
+        rechunk=False,
+        emotion="normal",
+    )
+    assert manifest["emotion"] == "normal"
+    stored = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert stored["emotion"] == "normal"
+
+
 def test_prepare_manifest_stores_explicit_language(tmp_path: Path) -> None:
     chapter = tts.ChapterInput(
         index=1,

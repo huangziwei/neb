@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from . import emotion as emotion_util
 from . import epub as epub_util
 from . import language as language_util
 from . import sanitize
@@ -646,7 +647,7 @@ def _model_config_path(book_dir: Path) -> Path:
 
 
 def _sanitize_model_config(payload: dict, book_dir: Path) -> dict:
-    """Coerce a raw model-config payload into a valid (language, layers) pair."""
+    """Coerce a raw model-config payload into a valid (language, layers, emotion)."""
     source_language = None
     if isinstance(payload, dict):
         source_language = payload.get("language")
@@ -663,7 +664,10 @@ def _sanitize_model_config(payload: dict, book_dir: Path) -> dict:
         layers_int = None
     layers = language_util.resolve_layers(language, layers_int)
 
-    return {"language": language, "layers": layers}
+    raw_emotion = payload.get("emotion") if isinstance(payload, dict) else None
+    emotion = emotion_util.resolve_emotion(raw_emotion)
+
+    return {"language": language, "layers": layers, "emotion": emotion}
 
 
 def _load_model_config(book_dir: Path) -> dict:
@@ -689,6 +693,10 @@ def _model_config_options(language: str) -> dict:
             for name in sorted(language_util.POCKET_TTS_LANGUAGES)
         },
         "layers": language_util.available_layers(language),
+        "emotions": list(emotion_util.EMOTIONS),
+        "emotion_display_names": {
+            name: emotion_util.display_name(name) for name in emotion_util.EMOTIONS
+        },
     }
 
 
@@ -1413,6 +1421,7 @@ class VoiceMapPayload(BaseModel):
 class ModelConfigPayload(BaseModel):
     language: str | None = None
     layers: int | None = None
+    emotion: str | None = None
 
 
 class ChapterAction(BaseModel):
@@ -1580,7 +1589,7 @@ def create_app(root_dir: Path) -> FastAPI:
     def set_book_voices(book_id: str, payload: VoiceMapPayload) -> JSONResponse:
         book_dir = _resolve_book_dir(root_dir, book_id)
         data = _sanitize_voice_map(
-            payload.dict(),
+            payload.model_dump(),
             repo_root,
             fallback_default=_default_book_voice(book_dir, repo_root),
         )
@@ -1606,7 +1615,7 @@ def create_app(root_dir: Path) -> FastAPI:
         book_dir = _resolve_book_dir(root_dir, book_id)
         manifest_path = book_dir / "tts" / "manifest.json"
         prior_manifest = _load_json(manifest_path) if manifest_path.exists() else {}
-        config = _write_model_config(book_dir, payload.dict())
+        config = _write_model_config(book_dir, payload.model_dump())
 
         cache_cleared = False
         if isinstance(prior_manifest, dict) and prior_manifest:
@@ -1737,7 +1746,6 @@ def create_app(root_dir: Path) -> FastAPI:
             "image/gif": ".gif",
         }
         ext = ext_map.get(file.content_type, ".jpg")
-        # Remove old cover files
         for old in book_dir.glob("cover.*"):
             if old.is_file():
                 old.unlink()
@@ -1745,7 +1753,6 @@ def create_app(root_dir: Path) -> FastAPI:
         dest = book_dir / cover_filename
         with open(dest, "wb") as fh:
             shutil.copyfileobj(file.file, fh)
-        # Update metadata.cover in toc.json files
         for path in (book_dir / "toc.json", book_dir / "clean" / "toc.json"):
             if not path.exists():
                 continue
@@ -2092,7 +2099,7 @@ def create_app(root_dir: Path) -> FastAPI:
     @app.post("/api/playback")
     def playback_set(book_id: str, payload: PlaybackPayload) -> JSONResponse:
         book_dir = _resolve_book_dir(root_dir, book_id)
-        cleaned = _sanitize_playback(payload.dict())
+        cleaned = _sanitize_playback(payload.model_dump())
         cleaned["updated_unix"] = int(time.time())
         _atomic_write_json(_playback_path(book_dir), cleaned)
         cleaned["exists"] = True
@@ -2296,7 +2303,7 @@ def create_app(root_dir: Path) -> FastAPI:
 
     @app.post("/api/sanitize/rules")
     def sanitize_rules(payload: RulesPayload) -> JSONResponse:
-        data = payload.dict()
+        data = payload.model_dump()
         book_id = data.pop("book_id", None)
         if not book_id:
             raise HTTPException(
@@ -2305,7 +2312,7 @@ def create_app(root_dir: Path) -> FastAPI:
             )
         book_dir = _resolve_book_dir(root_dir, book_id)
         _write_rules_payload(_book_rules_path(book_dir), data)
-        return _no_store(payload.dict())
+        return _no_store(payload.model_dump())
 
     @app.post("/api/sanitize/drop")
     def sanitize_drop(payload: ChapterAction) -> JSONResponse:
@@ -2629,6 +2636,8 @@ def create_app(root_dir: Path) -> FastAPI:
             model_config["language"],
             "--layers",
             str(model_config["layers"]),
+            "--emotion",
+            model_config["emotion"],
         ]
         if use_voice_map and voice_map_path and voice_map_path.exists():
             cmd += ["--voice-map", str(voice_map_path)]
@@ -2743,6 +2752,8 @@ def create_app(root_dir: Path) -> FastAPI:
             model_config["language"],
             "--layers",
             str(model_config["layers"]),
+            "--emotion",
+            model_config["emotion"],
         ]
         if payload.rechunk:
             cmd.append("--rechunk")
@@ -2791,6 +2802,7 @@ def create_app(root_dir: Path) -> FastAPI:
         if not voice_map_path.exists():
             voice_map_path = None
 
+        model_config = _load_model_config(book_dir)
         try:
             result = tts_util.synthesize_chunk(
                 out_dir=tts_dir,
@@ -2799,6 +2811,7 @@ def create_app(root_dir: Path) -> FastAPI:
                 voice=None,
                 voice_map_path=voice_map_path,
                 base_dir=repo_root,
+                emotion=model_config["emotion"],
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc

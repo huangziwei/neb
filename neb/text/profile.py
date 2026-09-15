@@ -1,13 +1,6 @@
 """The per-language data record that drives every lexical transform.
 
-A `LanguageProfile` holds only *data*: word tables, separators, symbol
-vocabularies, and the regex fragments that name a language's headings and
-abbreviations. The machinery that consumes them lives in `engine`, so adding
-a language means writing a profile, not another normalizer.
-
-Two escape hatches exist for transforms that are genuinely unique to one
-language (English URL spelling-out, for instance): `pre_hooks` runs before the
-shared pipeline and `post_hooks` after it.
+A profile holds only data; the machinery consuming it lives in `engine`.
 """
 from __future__ import annotations
 
@@ -53,13 +46,9 @@ class LanguageProfile:
     feminine_nouns: frozenset = frozenset()
 
     # --- script -------------------------------------------------------------
-    # Precomposed characters this language owns. Anything outside the set is
-    # folded to ASCII (see `common.fold_script`), so English keeps its Pali
-    # transliteration while German keeps its umlauts.
+    # Precomposed characters this language owns; the rest folds to ASCII.
     native_letters: frozenset = frozenset()
-    # Spell Pali and Sanskrit letters the way the model can pronounce them
-    # ("ā" → "aa"). Only English reads those texts without a native alphabet
-    # of its own to protect.
+    # Spell Pali and Sanskrit letters the way the model can say them ("ā" → "aa").
     transliterate_indic: bool = False
 
     # --- currency and magnitude --------------------------------------------

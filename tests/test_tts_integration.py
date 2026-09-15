@@ -1,10 +1,6 @@
-"""End-to-end integration tests that drive neb's synth pipeline with synthetic data.
+"""End-to-end tests that run the synth pipeline against a real TTS engine.
 
-These tests do not mock the TTS engine. For each importable backend — maneko (the
-default) and torch/pocket-tts (the optional extra) — they exercise the whole neb
-pipeline: manifest prep, chunking, voice resolution, model load, audio generation,
-wav writing. A backend is skipped when it (or its weights) isn't installed, so the
-suite stays green in environments where only one (or neither) engine is present.
+Each importable backend is exercised; a missing one is skipped, not failed.
 """
 from __future__ import annotations
 
@@ -33,11 +29,7 @@ _BACKEND_PARAMS = [pytest.param(name) for name in _BACKENDS] or [
 
 
 def _make_clone_source(path: Path, *, seconds: float = 2.0, sr: int = 24000) -> None:
-    """Write a short synthetic mono wav to use as a voice-clone source.
-
-    Voice cloning is wav-only, and a synthetic tone keeps the test hermetic:
-    it needs no populated voice directory.
-    """
+    """Write a short synthetic mono wav to use as a voice-clone source."""
     t = np.linspace(0.0, seconds, int(sr * seconds), endpoint=False)
     tone = 0.2 * np.sin(2.0 * np.pi * 150.0 * t).astype(np.float32)
     tts.write_wav_mono_16k_or_24k(path, tts.floats_to_int16(tone), sr)

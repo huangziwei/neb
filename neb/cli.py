@@ -12,6 +12,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import emotion as emotion_util
 from . import epub as epub_util
 from . import language as language_util
 from . import merge as merge_util
@@ -389,6 +390,7 @@ def _synth(args: argparse.Namespace) -> int:
             voice_map_path=voice_map,
             language=args.language,
             layers=args.layers,
+            emotion=args.emotion,
         )
 
     if text_path is None or out_dir is None:
@@ -406,6 +408,7 @@ def _synth(args: argparse.Namespace) -> int:
         voice_map_path=voice_map,
         language=args.language,
         layers=args.layers,
+        emotion=args.emotion,
     )
 
 
@@ -424,6 +427,7 @@ def _sample(args: argparse.Namespace) -> int:
         voice_map_path=voice_map,
         language=args.language,
         layers=args.layers,
+        emotion=args.emotion,
     )
 
 
@@ -437,6 +441,14 @@ def _add_model_config_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         choices=[6, 24],
         help="Flow-LM transformer layer count (6=fast, 24=higher quality)",
+    )
+    parser.add_argument(
+        "--emotion",
+        choices=sorted(emotion_util.EMOTIONS),
+        help=(
+            "Delivery mode: calm trades exclamation marks for full stops "
+            f"(default: {emotion_util.DEFAULT_EMOTION})"
+        ),
     )
 
 

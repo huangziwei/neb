@@ -1,9 +1,6 @@
 """German profile.
 
-German's departures from the shared pipeline are all data: the comma decimal
-mark and dot thousands separator, the pre-nominal "ein" that replaces the
-standalone "eins", the Mio./Mrd. magnitude abbreviations, and the "-er"
-decade suffix ("die 80er" → "die achtziger").
+German's departures from the shared pipeline are all data, not code.
 """
 from __future__ import annotations
 

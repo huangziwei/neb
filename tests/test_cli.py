@@ -58,3 +58,42 @@ def test_boundary_report_recommends_pad_adjustment_with_latency_data() -> None:
     assert payload["output_latency_coverage"] == 1.0
     assert recommendation["basis"] == "p50(delta_ms + output_latency_ms)"
     assert recommendation["recommended_pad_adjust_ms"] == 34
+
+
+def test_synth_command_forwards_emotion(monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_synthesize_book(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli.tts_util, "synthesize_book", fake_synthesize_book)
+
+    assert cli.main(["synth", "--book", "out/book", "--emotion", "normal"]) == 0
+    assert captured["emotion"] == "normal"
+
+
+def test_synth_command_leaves_emotion_to_the_default(monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_synthesize_book(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli.tts_util, "synthesize_book", fake_synthesize_book)
+
+    assert cli.main(["synth", "--book", "out/book"]) == 0
+    assert captured["emotion"] is None
+
+
+def test_sample_command_forwards_emotion(monkeypatch) -> None:
+    captured: dict = {}
+
+    def fake_sample(**kwargs):
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli.tts_util, "synthesize_book_sample", fake_sample)
+
+    assert cli.main(["sample", "--book", "out/book", "--emotion", "calm"]) == 0
+    assert captured["emotion"] == "calm"

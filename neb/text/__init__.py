@@ -1,16 +1,6 @@
 """Text I/O and TTS-time normalization.
 
-Layout:
-  * `io`       — reading clean text and inferring chapter titles
-  * `common`   — language-agnostic helpers (strip brackets/quotes, script
-                 folding, reading overrides, linebreak pauses)
-  * `profile`  — the per-language data record
-  * `engine`   — the shared normalization pipeline every language runs
-  * `english`, `german`, `italian`, `french`, `spanish`, `portuguese`
-               — one profile each, matching pocket-tts' six languages
-
-`prepare_tts_text` picks the profile for the book's language and runs the
-common pre-processing steps before handing off to the engine.
+`prepare_tts_text` runs a book's text through its language profile.
 """
 from __future__ import annotations
 
@@ -18,6 +8,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from ..emotion import DEFAULT_EMOTION, resolve_emotion
 from . import engine
 from . import english as _english
 from . import french as _french
@@ -33,6 +24,7 @@ from .common import (
     _strip_single_quotes,
     apply_reading_overrides,
     fold_script,
+    soften_exclamations,
 )
 
 # Re-exported for callers that reach for the override plumbing through the
@@ -71,6 +63,7 @@ __all__ = [
     "prepare_tts_text",
     "profile_for",
     "read_clean_text",
+    "soften_exclamations",
     "title_from_filename",
 ]
 
@@ -94,6 +87,7 @@ def prepare_tts_text(
     text: str,
     reading_overrides: Sequence[dict[str, Any]] | None = None,
     language: str = "english",
+    emotion: str = DEFAULT_EMOTION,
 ) -> str:
     profile = profile_for(language)
     overrides = reading_overrides or []
@@ -107,6 +101,9 @@ def prepare_tts_text(
     text = apply_reading_overrides(text, overrides)
     text = engine.normalize_lexical(text, profile)
     text = _normalize_linebreak_pauses(text)
+    # Last content pass, so it also catches any "!" the normalizers introduce.
+    if resolve_emotion(emotion) == "calm":
+        text = soften_exclamations(text)
     text = re.sub(r"\s+", " ", text).strip()
     if text and text[-1] not in ".!?":
         text += "."

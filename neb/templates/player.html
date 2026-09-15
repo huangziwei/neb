@@ -589,7 +589,8 @@
 
       .tts-panel.collapsed .tts-grid,
       .tts-panel.collapsed .tts-actions,
-      .tts-panel.collapsed .advanced-panel {
+      .tts-panel.collapsed .advanced-panel,
+      .tts-panel.collapsed .emotion-panel {
         display: none;
       }
 
@@ -768,6 +769,42 @@
 
       .advanced-panel.open {
         display: block;
+      }
+
+      .emotion-panel {
+        margin: 12px 0;
+        padding: 10px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        display: none;
+      }
+
+      .emotion-panel.open {
+        display: block;
+      }
+
+      .emotion-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .emotion-pill {
+        border: 1px solid var(--line-strong);
+        background: var(--surface-2);
+        color: var(--ink);
+        border-radius: 999px;
+        padding: 5px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .emotion-pill.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-ink);
       }
 
       .advanced-header {
@@ -2032,6 +2069,7 @@
           <div class="tts-header">
             <h3>Text To Speech <span class="tts-language-badge" id="ttsLanguageBadge" hidden></span></h3>
             <div class="tts-header-actions">
+              <button class="tts-toggle" id="emotionToggle" type="button">Emotion</button>
               <button class="tts-toggle" id="advancedToggle" type="button">Multi-Voices</button>
               <button class="tts-toggle" id="ttsToggle">Collapse</button>
             </div>
@@ -2054,6 +2092,9 @@
                 <div class="voice-empty">Loading voices...</div>
               </div>
             </div>
+          </div>
+          <div class="emotion-panel" id="emotionPanel">
+            <div class="emotion-pills" id="emotionPills"></div>
           </div>
           <div class="advanced-panel" id="advancedPanel">
             <div class="advanced-header">
@@ -2400,6 +2441,7 @@
         voicePreference: null,
         selectedVoice: null,
         advancedMode: false,
+        emotionMode: false,
         voiceMap: { default: null, chapters: {} },
         voiceOptions: [],
         advancedSelection: new Set(),
@@ -2570,6 +2612,9 @@
       const ttsToggle = document.getElementById("ttsToggle");
       const advancedToggle = document.getElementById("advancedToggle");
       const advancedPanel = document.getElementById("advancedPanel");
+      const emotionToggle = document.getElementById("emotionToggle");
+      const emotionPanel = document.getElementById("emotionPanel");
+      const emotionPills = document.getElementById("emotionPills");
       const advancedList = document.getElementById("advancedList");
       const advancedSelectAll = document.getElementById("advancedSelectAll");
       const advancedSelectedCount = document.getElementById("advancedSelectedCount");
@@ -4083,6 +4128,7 @@
         const book = state.book;
         if (!book || !book.model_config) {
           modelConfig.hidden = true;
+          updateEmotionMode(false);
           return;
         }
         modelConfig.hidden = false;
@@ -4114,6 +4160,47 @@
           modelLayers.appendChild(opt);
         });
         modelLayersField.hidden = layersOptions.length <= 1;
+        updateEmotionMode(false);
+      }
+
+      function renderEmotionPills() {
+        if (!emotionPills) {
+          return;
+        }
+        const book = state.book;
+        const options = (book && book.model_config_options) || {};
+        const emotions = Array.isArray(options.emotions) ? options.emotions : [];
+        const displayNames = options.emotion_display_names || {};
+        const selected = (book && book.model_config && book.model_config.emotion) || "";
+
+        emotionPills.innerHTML = "";
+        emotions.forEach((value) => {
+          const pill = document.createElement("button");
+          pill.type = "button";
+          pill.className = "emotion-pill";
+          pill.dataset.emotion = value;
+          pill.textContent = displayNames[value] || value;
+          pill.classList.toggle("active", value === selected);
+          pill.addEventListener("click", () => {
+            if (value === (state.book?.model_config?.emotion || "")) {
+              return;
+            }
+            void saveModelConfig({ emotion: value });
+          });
+          emotionPills.appendChild(pill);
+        });
+      }
+
+      function updateEmotionMode(persist = true) {
+        // Emotion is per-book config: nothing to show until a book is picked.
+        const show = state.emotionMode && !!state.book;
+        emotionPanel.classList.toggle("open", show);
+        emotionToggle.classList.toggle("mode-on", state.emotionMode);
+        emotionToggle.classList.toggle("mode-off", !state.emotionMode);
+        renderEmotionPills();
+        if (persist) {
+          saveSettings();
+        }
       }
 
       async function saveModelConfig(patch) {
@@ -4123,6 +4210,7 @@
         const payload = {
           language: patch.language ?? state.book.model_config?.language ?? null,
           layers: patch.layers ?? state.book.model_config?.layers ?? null,
+          emotion: patch.emotion ?? state.book.model_config?.emotion ?? null,
         };
         const previousLanguage = activeVoiceLanguage();
         try {
@@ -4568,6 +4656,7 @@
       function loadSettings() {
         state.voicePreference = localStorage.getItem("neb.voice");
         state.advancedMode = localStorage.getItem("neb.advancedMode") === "1";
+        state.emotionMode = localStorage.getItem("neb.emotionPanel") === "1";
         state.showBuiltinVoices =
           localStorage.getItem("neb.showBuiltinVoices") !== "0";
         state.libraryShelf = normalizeShelf(
@@ -4588,6 +4677,7 @@
           ttsToggle.textContent = "Expand";
         }
         updateAdvancedMode(false);
+        updateEmotionMode(false);
       }
 
       function saveSettings() {
@@ -4595,6 +4685,7 @@
           localStorage.setItem("neb.voice", state.voicePreference);
         }
         localStorage.setItem("neb.advancedMode", state.advancedMode ? "1" : "0");
+        localStorage.setItem("neb.emotionPanel", state.emotionMode ? "1" : "0");
         localStorage.setItem(
           "neb.showBuiltinVoices",
           state.showBuiltinVoices ? "1" : "0"
@@ -7740,6 +7831,10 @@
       advancedToggle.addEventListener("click", () => {
         state.advancedMode = !state.advancedMode;
         updateAdvancedMode();
+      });
+      emotionToggle.addEventListener("click", () => {
+        state.emotionMode = !state.emotionMode;
+        updateEmotionMode();
       });
       advancedSelectAll.addEventListener("change", () => {
         if (!state.book) {

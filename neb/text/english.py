@@ -1,9 +1,6 @@
-"""English profile and the transforms unique to English.
+"""English profile, plus the two transforms no other language needs.
 
-Everything shared with the other languages lives in `engine`; this module
-supplies the English vocabulary plus two things no other language needs:
-spelling out URLs, and the pronoun-"I" guard that keeps "I said" from becoming
-"one said".
+Spelling out URLs, and the pronoun-"I" guard that keeps "I said" intact.
 """
 from __future__ import annotations
 

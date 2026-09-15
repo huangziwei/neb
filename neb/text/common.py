@@ -1,16 +1,6 @@
 """Language-agnostic text helpers shared by all normalizers.
 
-This module holds:
-  * punctuation / break constants used by both chunking (in neb.tts) and
-    the TTS-time normalizers;
-  * bracket / quote stripping;
-  * script folding, which keeps each language's own diacritics and folds
-    everything else to ASCII;
-  * reading-override parsing, loading, merging, and application.
-
-None of the logic here is English- or German-specific; per-language lexical
-normalizers live in sibling modules and receive text that has already passed
-through these pre-processing steps.
+Per-language lexical normalizers live in sibling modules.
 """
 from __future__ import annotations
 
@@ -120,10 +110,6 @@ def _strip_single_quotes(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Script folding
 # ---------------------------------------------------------------------------
-#
-# Characters a language owns are left alone; everything else is folded to
-# ASCII. English owns nothing, so its Pali/Sanskrit transliteration still
-# applies in full, while German keeps its umlauts and Spanish its enye.
 
 _PALI_SANSKRIT_ASCII_MAP = {
     "ā": "aa",
@@ -209,10 +195,7 @@ def fold_script(
 ) -> str:
     """Fold characters outside a language's own alphabet down to ASCII.
 
-    `native_letters` holds the precomposed characters to preserve. Passing an
-    empty set reproduces the English behaviour of stripping every diacritic;
-    `transliterate_indic` additionally spells Pali and Sanskrit letters the way
-    an English model can pronounce them.
+    `native_letters` is preserved; an empty set strips every diacritic.
     """
     if not text or text.isascii():
         return text
@@ -252,6 +235,36 @@ def _normalize_linebreak_pauses(text: str) -> str:
         return ", "
 
     return re.sub(r"[ \t]*\n+[ \t]*", replace, text)
+
+
+# ---------------------------------------------------------------------------
+# Exclamation softening (calm emotion mode)
+# ---------------------------------------------------------------------------
+
+# A whole run of sentence-final marks containing at least one "!", so the run
+# can be replaced by the single mark that fits it.
+_EXCLAMATION_RUN = re.compile(r"[.!?…]*!+[.!?…]*")
+# Spanish opens an exclamation with "¡", which has nothing left to pair with.
+_INVERTED_EXCLAMATION = re.compile(r"¡+\s*")
+
+
+def soften_exclamations(text: str) -> str:
+    """Trade exclamation marks for full stops.
+
+    Mixed runs keep the mark a period cannot carry: "?!" and "!..." survive.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        run = match.group(0)
+        if "?" in run:
+            return "?"
+        if "…" in run:
+            return "…"
+        if "..." in run:
+            return "..."
+        return "."
+
+    return _INVERTED_EXCLAMATION.sub("", _EXCLAMATION_RUN.sub(replace, text))
 
 
 # ---------------------------------------------------------------------------

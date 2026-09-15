@@ -1,16 +1,6 @@
 """Number → words, for every supported language, via num2words.
 
-num2words already knows each language's cardinals, ordinals, and year forms
-(including French 70/80/90, Italian vowel elision, and the German -te/-ste
-split), so this module only adapts its output to what the TTS models want:
-
-  * `profile.number_tidy` reshapes punctuation — English drops the commas,
-    hyphens, and "and" that num2words inserts;
-  * `attributive` supplies the pre-nominal form of "one", so German reads
-    "ein Euro" rather than the standalone "eins Euro".
-
-Results are cached because a chapter repeats the same handful of numbers many
-times over.
+This module only adapts num2words output to what the TTS models want.
 """
 from __future__ import annotations
 
@@ -101,9 +91,7 @@ def decimal(int_part: str, frac_part: str, profile: LanguageProfile) -> str:
 def attributive(spoken: str, noun: str, profile: LanguageProfile) -> str:
     """Adjust a trailing 'one' to the form used before a noun.
 
-    German "eins" → "ein Euro"; Spanish "veintiuno" → "veintiún euros";
-    Italian "ventuno" → "ventun euro". Languages whose numeral does not change
-    before a noun are returned untouched.
+    German "eins" → "ein Euro". Languages that do not inflect are untouched.
     """
     replacement = profile.attributive_one
     if not replacement:

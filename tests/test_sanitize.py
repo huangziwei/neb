@@ -319,10 +319,6 @@ def test_normalize_all_caps_pali_sanskrit_title_case() -> None:
 # ---------------------------------------------------------------------------
 # A single stylized opening word vs. an acronym
 # ---------------------------------------------------------------------------
-#
-# By shape the two are identical — one capitalized word starting a paragraph
-# that continues in normal case. What separates them is how the rest of the book
-# writes that word, so these tests always supply a book-wide tally.
 
 def _stats(*chapters: str) -> sanitize.CaseStats:
     return sanitize.build_case_stats(list(chapters))
