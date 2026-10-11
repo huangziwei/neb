@@ -118,7 +118,7 @@ def test_resolve_model_id_accepts_iso_tag() -> None:
 
 
 def test_resolve_maneko_language_maps_english_to_dated_stem() -> None:
-    # English is the one special case: maneko's validated default checkpoint.
+    # Only English differs: maneko names its default checkpoint by date.
     assert language.resolve_maneko_language("english", 6) == "english_2026-04"
     assert language.resolve_maneko_language("en-US", None) == "english_2026-04"
     assert language.resolve_maneko_language("english", 24) == "english_2026-04"

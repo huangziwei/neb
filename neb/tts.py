@@ -71,7 +71,6 @@ _TTS_MODEL_CACHE_LOCK = threading.Lock()
 
 
 def _repo_root() -> Path:
-    """Walk up from the cwd to the directory holding pyproject.toml (the repo)."""
     start = Path.cwd()
     for candidate in [start, *start.parents]:
         if (candidate / "pyproject.toml").exists():
@@ -80,20 +79,13 @@ def _repo_root() -> Path:
 
 
 def _ensure_hf_home() -> None:
-    """Default HF_HOME to the repo-local cache so weights land in ./.cache/.
-
-    An explicit HF_HOME in the environment always wins.
-    """
     if not os.environ.get("HF_HOME"):
         os.environ["HF_HOME"] = str(_repo_root() / ".cache" / "huggingface")
     _ensure_hf_token_visible()
 
 
 def _ensure_hf_token_visible() -> None:
-    """Keep `hf auth login` working under a redirected HF_HOME.
-
-    huggingface_hub reads its token from $HF_HOME/token, which this one hides.
-    """
+    """Keep `hf auth login` working: huggingface_hub reads its token from $HF_HOME/token."""
     if os.environ.get("HF_TOKEN") or os.environ.get("HF_TOKEN_PATH"):
         return
     hf_home = os.environ.get("HF_HOME")
@@ -378,9 +370,7 @@ def chapter_id_from_path(index: int, title: str, rel_path: str | None) -> str:
     return f"{index:04d}-{slugify(title or 'chapter')}"
 
 
-# ----------------------------
-# Text chunking
-# ----------------------------
+# --- Text chunking -----------------------------------------------------------
 
 def sha256_str(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
@@ -763,9 +753,7 @@ def write_combined_input(chapters: Sequence[ChapterInput], out_dir: Path) -> Pat
     return path
 
 
-# ----------------------------
-# Manifest + outputs
-# ----------------------------
+# --- Manifest + outputs ------------------------------------------------------
 
 def atomic_write_json(path: Path, obj: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -804,9 +792,7 @@ def write_chunk_files(
     return paths
 
 
-# ----------------------------
-# WAV IO utilities
-# ----------------------------
+# --- WAV IO utilities --------------------------------------------------------
 
 def _require_tts() -> None:
     if torch is None or TTSModel is None:
@@ -818,10 +804,7 @@ def _require_tts() -> None:
 
 
 def tensor_to_int16(audio: torch.Tensor) -> torch.Tensor:
-    """Convert pocket-tts output — PCM in a 1D tensor — to int16.
-
-    The tensor arrives as either float or int, so both are handled.
-    """
+    """Convert pocket-tts output, a float or int PCM tensor, to int16."""
     _require_tts()
     a = audio.detach().cpu().flatten().contiguous()
 
@@ -840,10 +823,7 @@ def tensor_to_int16(audio: torch.Tensor) -> torch.Tensor:
 
 
 def floats_to_int16(samples: Sequence[float]) -> np.ndarray:
-    """Convert mono float audio (maneko's `list[float]`, ~[-1, 1]) to int16.
-
-    Like `tensor_to_int16`: a normalized peak is scaled, otherwise left as is.
-    """
+    """Convert maneko's mono float samples to int16, scaling a normalized peak."""
     a = np.asarray(samples, dtype=np.float32).reshape(-1)
     if a.size == 0:
         return np.zeros(0, dtype=np.int16)
@@ -871,9 +851,8 @@ def write_wav_mono_16k_or_24k(
     tmp.replace(path)
 
 
-# --- TTS backends --------------------------------------------------------------
-# A thin interface over the inference engine. Both backends return mono int16
-# numpy arrays; concat and pause padding happen in numpy in the callers.
+# --- TTS backends ------------------------------------------------------------
+# Backends return mono int16 numpy arrays; callers concat and pad them.
 
 
 class _TTSBackend:
@@ -922,8 +901,7 @@ class ManekoBackend(_TTSBackend):
     def prepare_voice(
         self, voice_prompt: str, language: str | None, layers: int | None
     ) -> Any:
-        # maneko clones lazily and caches the voice-state per (voice, language)
-        # internally, so there is nothing to precompute — just carry the path.
+        # maneko clones lazily and caches voice state itself, so the path is the handle.
         return voice_prompt
 
     def generate(
@@ -938,8 +916,7 @@ class ManekoBackend(_TTSBackend):
 
 
 class TorchBackend(_TTSBackend):
-    """Upstream pocket-tts (torch CPU). Default on Apple Silicon, where torch's
-    Accelerate/AMX GEMMs outrun maneko's q8 NEON kernels (~1.8x on an M4 Pro)."""
+    """Upstream pocket-tts on torch CPU; faster than maneko on Apple Silicon (AMX GEMMs)."""
 
     name = "torch"
 
@@ -983,10 +960,6 @@ def _make_backend(name: str) -> _TTSBackend:
 
 
 def _default_backend_name() -> str:
-    """Platform-aware default backend when NEB_TTS_BACKEND is unset.
-
-    Apple Silicon prefers torch; elsewhere maneko is the fast native path.
-    """
     if sys.platform == "darwin" and platform.machine() == "arm64":
         if torch is not None and TTSModel is not None:
             return "torch"
@@ -1007,10 +980,7 @@ def _resolve_backend_name() -> str:
 
 
 def get_backend() -> _TTSBackend:
-    """Return the configured TTS backend (cached per concrete engine).
-
-    NEB_TTS_BACKEND selects it and is re-read each call, so tests can switch.
-    """
+    """Backend named by NEB_TTS_BACKEND, re-read each call so tests can switch it."""
     _ensure_hf_home()
     name = _resolve_backend_name()
     with _TTS_BACKEND_LOCK:
@@ -1050,10 +1020,7 @@ def build_concat_file(segment_paths: list[Path], concat_path: Path, base_dir: Pa
 def build_chapters_ffmeta(
     chapters: Sequence[tuple[str, int]], ffmeta_path: Path
 ) -> None:
-    """
-    Generates a simple FFMETADATA1 file with one chapter per chapter.
-    ffmpeg can import chapters using -map_chapters.
-    """
+    """Write the chapters as an FFMETADATA1 file for ffmpeg's -map_chapters."""
     out = [";FFMETADATA1"]
     t = 0
     for title, d in chapters:
@@ -1069,9 +1036,7 @@ def build_chapters_ffmeta(
     ffmeta_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
-# ----------------------------
-# Synthesis
-# ----------------------------
+# --- Synthesis ---------------------------------------------------------------
 
 def prune_chapter_dirs(root: Path, keep: set[str]) -> None:
     if not root.exists():
@@ -1871,8 +1836,7 @@ def synthesize_book(
             emotion=emotion,
         )
     except Exception as exc:
-        # Leave a machine-readable trace for the player UI; the traceback still
-        # goes to the log via the re-raise.
+        # Record the failure for the player UI; the re-raise still logs the traceback.
         write_status(out_dir, "error", detail=str(exc)[:1000])
         raise
 
@@ -1944,15 +1908,12 @@ def synthesize_book_sample(
             emotion=emotion,
         )
     except Exception as exc:
-        # Leave a machine-readable trace for the player UI; the traceback still
-        # goes to the log via the re-raise.
+        # Record the failure for the player UI; the re-raise still logs the traceback.
         write_status(out_dir, "error", detail=str(exc)[:1000])
         raise
 
 
-# ----------------------------
-# CLI
-# ----------------------------
+# --- CLI ---------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()

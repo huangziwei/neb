@@ -1,7 +1,4 @@
-"""Cross-language tests for the shared normalization engine.
-
-Per-language depth lives in the language test modules.
-"""
+"""Cross-language tests for the shared normalization engine."""
 from __future__ import annotations
 
 import pytest
@@ -14,9 +11,7 @@ def norm(text: str, language: str = "english") -> str:
     return prepare_tts_text(text, language=language)
 
 
-# ---------------------------------------------------------------------------
-# Currency and magnitude word order
-# ---------------------------------------------------------------------------
+# --- Currency and magnitude word order ---------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -66,9 +61,7 @@ def test_bare_letter_is_not_a_magnitude(text: str, expected: str) -> None:
     assert norm(text) == f"{expected}."
 
 
-# ---------------------------------------------------------------------------
-# Script folding
-# ---------------------------------------------------------------------------
+# --- Script folding ----------------------------------------------------------
 
 @pytest.mark.parametrize(
     "language, text",
@@ -103,9 +96,7 @@ def test_unknown_language_falls_back_to_english() -> None:
     assert profile_for(None).name == "english"
 
 
-# ---------------------------------------------------------------------------
-# Symbols
-# ---------------------------------------------------------------------------
+# --- Symbols -----------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -129,9 +120,7 @@ def test_ampersand_inside_a_word_is_left_alone() -> None:
     assert norm("AT&T and R&D") == "AT&T and R&D."
 
 
-# ---------------------------------------------------------------------------
-# Fractions and clock times
-# ---------------------------------------------------------------------------
+# --- Fractions and clock times -----------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -169,9 +158,7 @@ def test_clock_colon_becomes_speakable(text: str, expected: str) -> None:
     assert norm(text) == f"{expected}."
 
 
-# ---------------------------------------------------------------------------
-# The four languages added with the shared engine
-# ---------------------------------------------------------------------------
+# --- Romance languages -------------------------------------------------------
 
 @pytest.mark.parametrize(
     "language, text, expected",
@@ -197,7 +184,7 @@ def test_clock_colon_becomes_speakable(text: str, expected: str) -> None:
         ("portuguese", "1º de maio", "primeiro de maio"),
     ],
 )
-def test_added_languages(language: str, text: str, expected: str) -> None:
+def test_romance_languages(language: str, text: str, expected: str) -> None:
     assert prepare_tts_text(text, language=language) == f"{expected}."
 
 

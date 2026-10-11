@@ -145,9 +145,7 @@ PROFILE = LanguageProfile(
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared transforms bound to this profile
-# ---------------------------------------------------------------------------
+# --- Shared transforms bound to this profile ---------------------------------
 
 def _int_to_words(value: int) -> str:
     return numbers.cardinal(value, PROFILE)

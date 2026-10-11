@@ -1218,11 +1218,6 @@
         color: var(--muted);
       }
 
-      .clone-inline-actions {
-        display: flex;
-        justify-content: flex-start;
-      }
-
       .clone-gender-toggle {
         display: inline-flex;
         align-items: center;
@@ -2265,12 +2260,6 @@
               </div>
             </div>
             <div class="meta-actions">
-              <!-- Built-in (pocket-tts hosted) voices were removed; cloning is wav-only. -->
-              <div class="clone-inline-actions" id="cloneBuiltinWrap" hidden>
-                <button class="btn small" id="cloneBuiltinToggle" type="button">
-                  Hide built-in voices
-                </button>
-              </div>
               <span class="meta-status" id="cloneStatus"></span>
               <button class="btn" id="cloneCancel" type="button">Cancel</button>
               <button class="btn danger" id="cloneDelete" type="button" hidden>Delete voice</button>
@@ -2489,7 +2478,6 @@
         cloneEditVoice: null,
         cloneNameDirty: false,
         cloneModalBusy: false,
-        showBuiltinVoices: true,
       };
 
       const bookList = document.getElementById("bookList");
@@ -2557,8 +2545,6 @@
       const cloneStart = document.getElementById("cloneStart");
       const cloneDuration = document.getElementById("cloneDuration");
       const cloneName = document.getElementById("cloneName");
-      const cloneBuiltinWrap = document.getElementById("cloneBuiltinWrap");
-      const cloneBuiltinToggle = document.getElementById("cloneBuiltinToggle");
       const cloneGenderMale = document.getElementById("cloneGenderMale");
       const cloneGenderFemale = document.getElementById("cloneGenderFemale");
       const cloneLanguage = document.getElementById("cloneLanguage");
@@ -3732,29 +3718,6 @@
         return isLocalVoice(state.selectedVoice) ? state.selectedVoice : null;
       }
 
-      function updateCloneBuiltinToggleLabel() {
-        if (!cloneBuiltinToggle) {
-          return;
-        }
-        cloneBuiltinToggle.textContent = state.showBuiltinVoices
-          ? "Hide built-in voices"
-          : "Show built-in voices";
-      }
-
-      function setBuiltinVoicesVisible(visible) {
-        const normalized = !!visible;
-        if (state.showBuiltinVoices === normalized) {
-          return;
-        }
-        state.showBuiltinVoices = normalized;
-        localStorage.setItem(
-          "neb.showBuiltinVoices",
-          state.showBuiltinVoices ? "1" : "0"
-        );
-        updateCloneBuiltinToggleLabel();
-        void loadVoices();
-      }
-
       function updateLocalVoiceActionButton() {
         if (!localVoiceActionButton) {
           return;
@@ -3809,29 +3772,6 @@
         localVoiceActionButton = actionButton;
         updateLocalVoiceActionButton();
         return actionButton;
-      }
-
-      function appendVoiceGroup(container, label, items, options = {}) {
-        const includeAddButton = !!options.includeAddButton;
-        if (!items.length && !includeAddButton) {
-          return;
-        }
-        const group = document.createElement("div");
-        group.className = "voice-group";
-        const title = document.createElement("div");
-        title.className = "voice-group-title";
-        title.textContent = label;
-        const buttons = document.createElement("div");
-        buttons.className = "voice-buttons";
-        items.forEach((item) => {
-          buttons.appendChild(createVoiceSelectionButton(item));
-        });
-        if (includeAddButton) {
-          buttons.appendChild(createLocalVoiceActionButton());
-        }
-        group.appendChild(title);
-        group.appendChild(buttons);
-        container.appendChild(group);
       }
 
       function formatVoiceLabel(label) {
@@ -3962,9 +3902,6 @@
         try {
           const data = await fetchJson("/api/voices");
           const allLocal = Array.isArray(data.local) ? data.local : [];
-          const builtin = Array.isArray(data.builtin) ? data.builtin : [];
-          const visibleBuiltin = state.showBuiltinVoices ? builtin : [];
-          const defaultVoice = data.default || "";
           state.voiceLanguages = Array.isArray(data.languages)
             ? data.languages.map(normalizeVoiceLanguage).filter(Boolean)
             : [];
@@ -4014,14 +3951,13 @@
             (item) => voiceLanguageOf(item) === activeLanguage
           );
 
-          state.voiceOptions = [...local, ...builtin];
+          state.voiceOptions = local;
           state.visibleVoiceValues = state.voiceOptions
             .map((item) => item.value)
             .filter((value) => typeof value === "string" && value);
           voiceGroup.innerHTML = "";
           localVoiceActionButton = null;
           renderLocalVoiceGroups(local);
-          appendVoiceGroup(voiceGroup, "Built-in voices", visibleBuiltin);
 
           const available = state.voiceOptions.map((item) => item.value);
           if (!available.length) {
@@ -4034,15 +3970,7 @@
             ? state.voiceMap.default
             : state.bookVoice || state.voicePreference;
           if (!selected || !available.includes(selected)) {
-            if (local.length) {
-              selected = local[0].value;
-            } else if (defaultVoice && available.includes(defaultVoice)) {
-              selected = defaultVoice;
-            } else if (builtin.length) {
-              selected = builtin[0].value;
-            } else {
-              selected = null;
-            }
+            selected = local[0].value;
           }
           const previousDefault = state.voiceMap.default;
           setSelectedVoice(selected, false);
@@ -4369,25 +4297,20 @@
           female: [],
           male: [],
           unspecified: [],
-          builtin: [],
         };
         state.voiceOptions.forEach((entry) => {
           if (!entry || !entry.value) {
             return;
           }
-          if (isLocalVoice(entry.value)) {
-            const gender = normalizeVoiceGender(
-              entry.gender || state.voiceGenderMap[entry.value]
-            );
-            if (gender === "female") {
-              buckets.female.push(entry);
-            } else if (gender === "male") {
-              buckets.male.push(entry);
-            } else {
-              buckets.unspecified.push(entry);
-            }
+          const gender = normalizeVoiceGender(
+            entry.gender || state.voiceGenderMap[entry.value]
+          );
+          if (gender === "female") {
+            buckets.female.push(entry);
+          } else if (gender === "male") {
+            buckets.male.push(entry);
           } else {
-            buckets.builtin.push(entry);
+            buckets.unspecified.push(entry);
           }
         });
 
@@ -4409,7 +4332,6 @@
         appendOptionGroup("Female local voices", buckets.female);
         appendOptionGroup("Male local voices", buckets.male);
         appendOptionGroup("Unspecified local voices", buckets.unspecified);
-        appendOptionGroup("Built-in voices", buckets.builtin);
 
         // Keep an existing assignment selectable even when its voice belongs to
         // another language than the one the model config filters on.
@@ -4657,8 +4579,6 @@
         state.voicePreference = localStorage.getItem("neb.voice");
         state.advancedMode = localStorage.getItem("neb.advancedMode") === "1";
         state.emotionMode = localStorage.getItem("neb.emotionPanel") === "1";
-        state.showBuiltinVoices =
-          localStorage.getItem("neb.showBuiltinVoices") !== "0";
         state.libraryShelf = normalizeShelf(
           localStorage.getItem("neb.libraryShelf")
         );
@@ -4686,10 +4606,6 @@
         }
         localStorage.setItem("neb.advancedMode", state.advancedMode ? "1" : "0");
         localStorage.setItem("neb.emotionPanel", state.emotionMode ? "1" : "0");
-        localStorage.setItem(
-          "neb.showBuiltinVoices",
-          state.showBuiltinVoices ? "1" : "0"
-        );
       }
 
       function filterBooksForShelf() {
@@ -5847,9 +5763,6 @@
         if (cloneName) {
           cloneName.disabled = busy;
         }
-        if (cloneBuiltinToggle) {
-          cloneBuiltinToggle.disabled = busy;
-        }
         setCloneGenderDisabled(busy);
         if (cloneLanguage) {
           cloneLanguage.disabled = busy;
@@ -5889,15 +5802,11 @@
         if (cloneEditNote) {
           cloneEditNote.hidden = !editing;
         }
-        if (cloneBuiltinWrap) {
-          cloneBuiltinWrap.hidden = editing;
-        }
         if (cloneEditVoiceLabel) {
           cloneEditVoiceLabel.textContent = editing
             ? voiceLabelFromValue(editVoiceValue || "")
             : "";
         }
-        updateCloneBuiltinToggleLabel();
         if (editing) {
           resetClonePreview();
         }
@@ -5939,7 +5848,6 @@
           setCloneLanguageValue(activeVoiceLanguage());
         }
         state.cloneNameDirty = false;
-        updateCloneBuiltinToggleLabel();
         setCloneStatus("");
         setCloneBusy(false);
         cloneModal.hidden = false;
@@ -7710,11 +7618,6 @@
         state.cloneNameDirty = cloneName.value.trim().length > 0;
         setCloneStatus("");
       });
-      if (cloneBuiltinToggle) {
-        cloneBuiltinToggle.addEventListener("click", () => {
-          setBuiltinVoicesVisible(!state.showBuiltinVoices);
-        });
-      }
       cloneModal.addEventListener("click", (event) => {
         if (event.target === cloneModal) {
           event.stopPropagation();

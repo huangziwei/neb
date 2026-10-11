@@ -5,9 +5,7 @@ import pytest
 
 from neb.text import german, prepare_tts_text
 
-# ---------------------------------------------------------------------------
-# _int_to_words — cardinals
-# ---------------------------------------------------------------------------
+# --- _int_to_words — cardinals -----------------------------------------------
 
 @pytest.mark.parametrize(
     "value, expected",
@@ -57,9 +55,7 @@ def test_int_to_words_negative() -> None:
     assert german._int_to_words(-5) == "minus fünf"
 
 
-# ---------------------------------------------------------------------------
-# _year_to_words
-# ---------------------------------------------------------------------------
+# --- _year_to_words ----------------------------------------------------------
 
 @pytest.mark.parametrize(
     "year, expected",
@@ -85,9 +81,7 @@ def test_year_to_words_out_of_range_falls_back() -> None:
     assert german._year_to_words(42) == "zweiundvierzig"
 
 
-# ---------------------------------------------------------------------------
-# _int_to_ordinal_words
-# ---------------------------------------------------------------------------
+# --- _int_to_ordinal_words ---------------------------------------------------
 
 @pytest.mark.parametrize(
     "value, expected",
@@ -117,9 +111,7 @@ def test_int_to_ordinal_words(value: int, expected: str) -> None:
     assert german._int_to_ordinal_words(value) == expected
 
 
-# ---------------------------------------------------------------------------
-# Abbreviations
-# ---------------------------------------------------------------------------
+# --- Abbreviations -----------------------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -137,7 +129,6 @@ def test_multi_dot_abbreviations(text: str, expected: str) -> None:
 
 
 def test_dr_prof_expand_to_full_word() -> None:
-    # German TTS reads Dr./Prof. as their full form.
     assert (
         german.normalize_abbreviations("Dr. Müller und Prof. Schmidt")
         == "Doktor Müller und Professor Schmidt"
@@ -152,6 +143,10 @@ def test_seite_abbreviation_expands_before_digit() -> None:
     assert german.normalize_abbreviations("vgl. S. 42") == "vergleiche Seite 42"
 
 
+def test_seite_abbreviation_expands_before_roman_numeral() -> None:
+    assert german.normalize_abbreviations("vgl. S. XII") == "vergleiche Seite XII"
+
+
 def test_bzw_usw_ca_expand() -> None:
     assert (
         german.normalize_abbreviations("Äpfel bzw. Birnen usw. ca. 5 Stück")
@@ -159,9 +154,7 @@ def test_bzw_usw_ca_expand() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Currency
-# ---------------------------------------------------------------------------
+# --- Currency ----------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -209,14 +202,12 @@ def test_quantity_beats_year_reading(text: str, expected: str) -> None:
 
 
 def test_currency_no_plural_s() -> None:
-    # Critical: plural for Euro/Dollar/Pfund is same as singular in German.
+    # German Euro, Dollar and Pfund keep the singular form in the plural.
     assert "Euros" not in german._normalize_currency_symbols("€10")
     assert "Dollars" not in german._normalize_currency_symbols("$5")
 
 
-# ---------------------------------------------------------------------------
-# Era markers
-# ---------------------------------------------------------------------------
+# --- Era markers -------------------------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -232,9 +223,7 @@ def test_normalize_era_abbreviations(text: str, expected: str) -> None:
     assert german._normalize_era_abbreviations(text) == expected
 
 
-# ---------------------------------------------------------------------------
-# Roman numerals
-# ---------------------------------------------------------------------------
+# --- Roman numerals ----------------------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -254,9 +243,7 @@ def test_roman_standalone_single_line() -> None:
     assert german._normalize_roman_numerals("VII.") == "sieben."
 
 
-# ---------------------------------------------------------------------------
-# Ordinals (heading context)
-# ---------------------------------------------------------------------------
+# --- Ordinals (heading context) ----------------------------------------------
 
 @pytest.mark.parametrize(
     "text, expected",
@@ -271,13 +258,10 @@ def test_ordinals_before_heading(text: str, expected: str) -> None:
 
 
 def test_digit_before_heading_stays_cardinal_without_period() -> None:
-    # Without the ordinal period, the number stays cardinal.
     assert german._normalize_ordinals("5 Kapitel") == "5 Kapitel"
 
 
-# ---------------------------------------------------------------------------
-# Full pipeline via normalize_german_lexical
-# ---------------------------------------------------------------------------
+# --- Full pipeline via normalize_german_lexical ------------------------------
 
 def test_normalize_german_lexical_years() -> None:
     text = "Er wurde 1985 geboren und 2020 promoviert."
@@ -292,7 +276,7 @@ def test_normalize_german_lexical_currency_and_number() -> None:
     # A thousands-dot amount is read as a cardinal, not a year.
     result = german.normalize_german_lexical(text)
     assert "Euro" in result
-    assert "1500" not in result  # must be spelled out
+    assert "1500" not in result
     assert "eintausendfünfhundert" in result
 
 
@@ -311,9 +295,7 @@ def test_normalize_german_lexical_era() -> None:
     assert "vor Christus" in result
 
 
-# ---------------------------------------------------------------------------
-# Integration: prepare_tts_text with language="german"
-# ---------------------------------------------------------------------------
+# --- Integration: prepare_tts_text with language="german" --------------------
 
 def test_prepare_tts_text_german_dispatches_to_german_normalizer() -> None:
     text = "Das Jahr 1985 ist wichtig."
@@ -350,6 +332,5 @@ def test_prepare_tts_text_german_era() -> None:
 
 
 def test_prepare_tts_text_default_language_is_english() -> None:
-    # English normalizer converts Mr. → Mr, Chapter V → Chapter five.
-    result = prepare_tts_text("Chapter V", language="english")
+    result = prepare_tts_text("Chapter V")
     assert "five" in result.lower()

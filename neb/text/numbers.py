@@ -1,7 +1,4 @@
-"""Number → words, for every supported language, via num2words.
-
-This module only adapts num2words output to what the TTS models want.
-"""
+"""Number → words for every supported language, via num2words."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -89,10 +86,7 @@ def decimal(int_part: str, frac_part: str, profile: LanguageProfile) -> str:
 
 
 def attributive(spoken: str, noun: str, profile: LanguageProfile) -> str:
-    """Adjust a trailing 'one' to the form used before a noun.
-
-    German "eins" → "ein Euro". Languages that do not inflect are untouched.
-    """
+    """Swap a trailing "one" for its pre-noun form: German "eins" → "ein Euro"."""
     replacement = profile.attributive_one
     if not replacement:
         return spoken

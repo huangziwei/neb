@@ -428,7 +428,6 @@ def test_chapters_from_toc_entries_fallback_merges_multi_file_chapters() -> None
 
 
 def test_chapters_from_toc_entries_last_entry_merges_to_end_of_spine() -> None:
-    """The last TOC entry should merge all remaining spine items to end."""
     items = [
         _FakeDocumentItem(
             "book_split_000.html", "", b"<html><body><h1>Chapter One</h1></body></html>", "s0"
@@ -454,9 +453,7 @@ def test_chapters_from_toc_entries_last_entry_merges_to_end_of_spine() -> None:
     assert "Chapter two part two" in chapters[1].text
 
 
-def test_chapters_from_toc_entries_split_series_merge_regression() -> None:
-    """Single TOC entry pointing to a split series with count==1 should still
-    merge all files in that series via the existing logic."""
+def test_chapters_from_toc_entries_merges_whole_split_series() -> None:
     items = [
         _FakeDocumentItem(
             "intro.html", "", b"<html><body><p>Introduction.</p></body></html>", "intro"
@@ -483,7 +480,6 @@ def test_chapters_from_toc_entries_split_series_merge_regression() -> None:
 
 
 def test_chapters_from_toc_entries_single_file_chapters_unaffected() -> None:
-    """Single-file chapters (no split files) should remain unchanged."""
     items = [
         _FakeDocumentItem(
             "ch1.html", "", b"<html><body><p>Chapter one.</p></body></html>", "c1"
@@ -542,7 +538,6 @@ def test_chapters_from_toc_entries_merges_non_split_multi_file_chapters() -> Non
 
 
 def test_ingestion_report_detects_orphaned_items() -> None:
-    """ingestion_report should detect spine items not captured in chapters."""
     items = [
         _FakeDocumentItem(
             "ch1.html", "", b"<html><body><p>Chapter one.</p></body></html>", "c1"
@@ -562,7 +557,6 @@ def test_ingestion_report_detects_orphaned_items() -> None:
 
 
 def test_ingestion_report_no_orphans_after_merge() -> None:
-    """After a successful merge, ingestion_report should show no orphans."""
     items = [
         _FakeDocumentItem(
             "book_split_000.html", "", b"<html><body><h1>Chapter One</h1></body></html>", "s0"

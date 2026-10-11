@@ -1,7 +1,4 @@
-"""Language-agnostic text helpers shared by all normalizers.
-
-Per-language lexical normalizers live in sibling modules.
-"""
+"""Language-agnostic text helpers shared by all normalizers."""
 from __future__ import annotations
 
 import json
@@ -11,9 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# Punctuation sets and pause-break tuning
-# ---------------------------------------------------------------------------
+# --- Punctuation sets and pause-break tuning ---------------------------------
 
 _CLAUSE_PUNCT = {",", ";", ":"}
 _SENT_PUNCT = {".", "!", "?"}
@@ -26,9 +21,7 @@ _TITLE_BREAK_PAD_MULTIPLIER = 5
 _CHAPTER_BREAK_PAD_MULTIPLIER = _TITLE_BREAK_PAD_MULTIPLIER
 
 
-# ---------------------------------------------------------------------------
-# Quote + bracket stripping
-# ---------------------------------------------------------------------------
+# --- Quote + bracket stripping -----------------------------------------------
 
 _DOUBLE_QUOTE_CHARS = {'"', "“", "”", "«", "»", "„", "‟", "❝", "❞"}
 _SINGLE_QUOTE_CHARS = {"'", "‘", "’", "‚", "‛"}
@@ -107,9 +100,7 @@ def _strip_single_quotes(text: str) -> str:
     return "".join(out)
 
 
-# ---------------------------------------------------------------------------
-# Script folding
-# ---------------------------------------------------------------------------
+# --- Script folding ----------------------------------------------------------
 
 _PALI_SANSKRIT_ASCII_MAP = {
     "ā": "aa",
@@ -193,10 +184,7 @@ def fold_script(
     native_letters: frozenset = frozenset(),
     transliterate_indic: bool = False,
 ) -> str:
-    """Fold characters outside a language's own alphabet down to ASCII.
-
-    `native_letters` is preserved; an empty set strips every diacritic.
-    """
+    """Fold characters outside `native_letters` down to ASCII."""
     if not text or text.isascii():
         return text
     if transliterate_indic:
@@ -206,9 +194,7 @@ def fold_script(
     return _normalize_combining_diacritics(text, native_letters)
 
 
-# ---------------------------------------------------------------------------
-# Linebreak → pause mapping (used by every language)
-# ---------------------------------------------------------------------------
+# --- Linebreak → pause mapping (used by every language) ----------------------
 
 def _normalize_linebreak_pauses(text: str) -> str:
     if "\n" not in text:
@@ -237,22 +223,16 @@ def _normalize_linebreak_pauses(text: str) -> str:
     return re.sub(r"[ \t]*\n+[ \t]*", replace, text)
 
 
-# ---------------------------------------------------------------------------
-# Exclamation softening (calm emotion mode)
-# ---------------------------------------------------------------------------
+# --- Exclamation softening (calm emotion mode) -------------------------------
 
-# A whole run of sentence-final marks containing at least one "!", so the run
-# can be replaced by the single mark that fits it.
+# A run of sentence-final marks holding a "!", replaced whole by one fitting mark.
 _EXCLAMATION_RUN = re.compile(r"[.!?…]*!+[.!?…]*")
 # Spanish opens an exclamation with "¡", which has nothing left to pair with.
 _INVERTED_EXCLAMATION = re.compile(r"¡+\s*")
 
 
 def soften_exclamations(text: str) -> str:
-    """Trade exclamation marks for full stops.
-
-    Mixed runs keep the mark a period cannot carry: "?!" and "!..." survive.
-    """
+    """Trade "!" for full stops; a "?" or ellipsis in the same run wins instead."""
 
     def replace(match: re.Match[str]) -> str:
         run = match.group(0)
@@ -267,9 +247,7 @@ def soften_exclamations(text: str) -> str:
     return _INVERTED_EXCLAMATION.sub("", _EXCLAMATION_RUN.sub(replace, text))
 
 
-# ---------------------------------------------------------------------------
-# Reading overrides
-# ---------------------------------------------------------------------------
+# --- Reading overrides -------------------------------------------------------
 
 READING_OVERRIDES_FILENAME = "reading-overrides.json"
 _READING_MODES = {"all", "first", "word", "word_first"}

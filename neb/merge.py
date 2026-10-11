@@ -695,4 +695,4 @@ def merge_book(
     return 0
 
 
-AUTO_SPLIT_HOURS = 8.0
+AUTO_SPLIT_HOURS = 12.0

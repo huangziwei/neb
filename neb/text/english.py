@@ -1,7 +1,4 @@
-"""English profile, plus the two transforms no other language needs.
-
-Spelling out URLs, and the pronoun-"I" guard that keeps "I said" intact.
-"""
+"""English profile, plus the URL spelling-out only English uses."""
 from __future__ import annotations
 
 import re
@@ -9,9 +6,7 @@ import re
 from . import engine, numbers
 from .profile import LanguageProfile
 
-# ---------------------------------------------------------------------------
-# URL spelling-out
-# ---------------------------------------------------------------------------
+# --- URL spelling-out --------------------------------------------------------
 
 _URL_RE = re.compile(r"(?:https?|ftp)://[^\s<>\"')\]]+", re.IGNORECASE)
 _URL_SPELL_OUT = {"http", "https", "ftp", "www"}
@@ -54,9 +49,7 @@ def normalize_urls(text: str) -> str:
     return _URL_RE.sub(_url_to_spoken, text)
 
 
-# ---------------------------------------------------------------------------
-# Spoken-word shaping
-# ---------------------------------------------------------------------------
+# --- Spoken-word shaping -----------------------------------------------------
 
 _AND_RE = re.compile(r"\band\b")
 
@@ -85,9 +78,7 @@ def _pluralize_phrase(phrase: str) -> str:
     return " ".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Profile
-# ---------------------------------------------------------------------------
+# --- Profile -----------------------------------------------------------------
 
 _ERA_LETTERS = ("BCE", "BC", "CE", "AD")
 _ERA_DOTTED = (
@@ -96,8 +87,7 @@ _ERA_DOTTED = (
     (r"\bC\s*\.\s*E\s*\.?", "C-E"),
     (r"\bB\s*\.\s*C\s*\.(?!\s*E\s*\.?)", "B-C"),
 )
-# Plain era labels are matched case-sensitively — lowercase "ad" is the English
-# word, and "3 ad hoc committees" must not become "three A-D hoc committees".
+# Plain era labels are case-sensitive: "3 ad hoc committees" is not an era.
 _ERA_YEAR = r"\d{1,4}(?:\s*[–-]\s*\d{1,4})?"
 _ERA_PLAIN = tuple(
     rule
@@ -120,8 +110,7 @@ PROFILE = LanguageProfile(
     thousands_sep=",",
     decimal_sep=".",
     pair_zero_word="oh",
-    # English keeps no diacritics: the models read ASCII, and the Pali/Sanskrit
-    # transliteration in `common` is written for exactly this case.
+    # The English model reads ASCII; Pali/Sanskrit letters are spelled out, not stripped.
     native_letters=frozenset(),
     transliterate_indic=True,
     currency_units={
@@ -246,9 +235,7 @@ PROFILE = LanguageProfile(
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared transforms bound to this profile
-# ---------------------------------------------------------------------------
+# --- Shared transforms bound to this profile ---------------------------------
 
 def _int_to_words(value: int) -> str:
     return numbers.cardinal(value, PROFILE)

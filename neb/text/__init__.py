@@ -1,7 +1,4 @@
-"""Text I/O and TTS-time normalization.
-
-`prepare_tts_text` runs a book's text through its language profile.
-"""
+"""Text I/O and TTS-time normalization; `prepare_tts_text` is the entry point."""
 from __future__ import annotations
 
 import re
@@ -27,8 +24,7 @@ from .common import (
     soften_exclamations,
 )
 
-# Re-exported for callers that reach for the override plumbing through the
-# package root rather than `neb.text.common`.
+# Re-exported for callers that import these from the package root.
 from .common import _load_reading_overrides as _load_reading_overrides
 from .common import _merge_reading_overrides as _merge_reading_overrides
 from .english import (
@@ -79,7 +75,6 @@ _PROFILES: dict[str, LanguageProfile] = {
 
 
 def profile_for(language: str | None) -> LanguageProfile:
-    """Profile for a pocket-tts language name, falling back to English."""
     return _PROFILES.get(str(language or "").lower(), _english.PROFILE)
 
 

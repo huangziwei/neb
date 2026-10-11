@@ -71,10 +71,6 @@ def _normalize_voice_gender(value: object) -> str | None:
 
 
 def _normalize_voice_language(value: object) -> str | None:
-    """Map a raw voice language tag to a pocket-tts language name.
-
-    Empty/missing stays None (untagged); unsupported raises ValueError.
-    """
     if value is None:
         return None
     raw = str(value).strip().lower()
@@ -1804,7 +1800,6 @@ def create_app(root_dir: Path) -> FastAPI:
                     ):
                         entry["language"] = language
                 local.append(entry)
-        # There are no built-in named voices; every narrator is a wav clone.
         languages = sorted(language_util.POCKET_TTS_LANGUAGES)
         return _no_store(
             {

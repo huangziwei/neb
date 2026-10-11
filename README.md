@@ -65,7 +65,7 @@ uv run neb merge \
   --output out/some-book/some-book.m4b
 ```
 
-Merge auto-splits if the book is longer than 8 hours, keeping parts near-equal
+Merge auto-splits if the book is longer than 12 hours, keeping parts near-equal
 and splitting only at chapter boundaries.
 
 To override the split threshold:

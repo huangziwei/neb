@@ -1,7 +1,4 @@
-"""The language-agnostic normalization pipeline.
-
-The step order fixed by `normalize_lexical` is load-bearing.
-"""
+"""The language-agnostic normalization pipeline."""
 from __future__ import annotations
 
 import re
@@ -61,9 +58,7 @@ def _alternation(words: Sequence[str]) -> str:
     return "|".join(re.escape(w) for w in ordered)
 
 
-# ---------------------------------------------------------------------------
-# Compiled per-profile rules
-# ---------------------------------------------------------------------------
+# --- Compiled per-profile rules ----------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
@@ -113,9 +108,7 @@ def _rules(profile: LanguageProfile) -> _Rules:
     grouped = rf"\d{{1,3}}(?:{ts}\d{{3}})+|\d+"
     amount = rf"[+-]?(?:(?:{grouped})(?:{ds}\d+)?|{ds}\d+)"
 
-    # Spelled-out and unambiguous abbreviations are safe anywhere; single-letter
-    # ones are not ("20 m" is metres, "$20m" is millions), so they join only the
-    # currency patterns.
+    # Ambiguous `scale_abbrevs` ("20 m" is metres) join only the currency patterns.
     scale_plain = {k.lower(): v for k, v in profile.scale_words.items()}
     scale_lookup = dict(scale_plain)
     scale_lookup.update({k.lower(): v for k, v in profile.scale_abbrevs.items()})
@@ -137,9 +130,7 @@ def _rules(profile: LanguageProfile) -> _Rules:
     for word in profile.unit_words:
         noun_lookup.setdefault(word.lower(), (word, word))
 
-    # Scale and noun tables are keyed lowercase, so every pattern that consults
-    # them matches case-insensitively — "Mrd." and "Euro" must find "mrd" and
-    # "euro".
+    # The tables are keyed lowercase, so patterns consulting them use re.IGNORECASE.
     symbols = "".join(re.escape(s) for s in profile.currency_units)
     currency_prefix = currency_suffix = None
     if symbols:
@@ -217,12 +208,10 @@ def _rules(profile: LanguageProfile) -> _Rules:
 
     numbered_abbrev = None
     if profile.numbered_abbrevs:
-        # A digit may follow immediately ("Nr.5"), but a Roman numeral needs a
-        # space — otherwise the M in "5 p.m." reads as the numeral 1000 and
-        # turns the abbreviation into "pagem".
+        # A Roman numeral must be spaced off the dot, or "p.m." reads its M as 1000.
         numbered_abbrev = re.compile(
             rf"\b(?P<token>{_alternation(list(profile.numbered_abbrevs))})\."
-            r"(?=\s*\d|\s+[IVXLCDM]+\b)",
+            r"(?=\s*\d|[^\S\n]+(?P<roman>[IVXLCDM]+)\b)",
             re.IGNORECASE,
         )
 
@@ -300,9 +289,7 @@ def _rules(profile: LanguageProfile) -> _Rules:
     )
 
 
-# ---------------------------------------------------------------------------
-# Amounts
-# ---------------------------------------------------------------------------
+# --- Amounts -----------------------------------------------------------------
 
 
 def _amount_parts(amount: str, profile: LanguageProfile) -> tuple[str, str, str]:
@@ -345,10 +332,7 @@ def _spoken_quantity(
     profile: LanguageProfile,
     rules: _Rules,
 ) -> str:
-    """Render "<amount> [scale] [noun]" with the right number and noun forms.
-
-    A magnitude word always pluralizes the noun that follows it.
-    """
+    """Render "<amount> [scale] [noun]" with the right number and noun forms."""
     _, int_part, frac = _amount_parts(amount, profile)
     singular = _is_one(int_part, frac)
     spoken = _amount_to_words(amount, profile)
@@ -376,9 +360,7 @@ def _spoken_quantity(
     return " ".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Abbreviations
-# ---------------------------------------------------------------------------
+# --- Abbreviations -----------------------------------------------------------
 
 _INITIALS_WITH_NAME_RE = re.compile(
     r"\b(?P<seq>[A-Z]\.(?:\s+[A-Z]\.)+)\s+(?P<name>[A-Z][^\W\d_'’\-]*[^\W\d_])\b"
@@ -410,6 +392,38 @@ def _normalize_initialisms(text: str) -> str:
     return _COMPACT_DOTTED_INITIALISM_RE.sub(bare, text)
 
 
+_CONTRACTION_RE = re.compile(rf"['’]{_LETTER}")
+_NEXT_WORD_RE = re.compile(rf"\s+({_LETTER})")
+_UTTERANCE_START = frozenset(".!?…:;\"'“”‘’«»„([{—–-")
+
+
+def _is_pronoun_i(text: str, abbrev_start: int, rest: str) -> bool:
+    """Is the "I" after "No." the pronoun: "No. I didn't", "No. I'm", "No. I—"?"""
+    if _CONTRACTION_RE.match(rest):
+        return True
+    following = _NEXT_WORD_RE.match(rest)
+    if following and following.group(1).islower():
+        return True
+    before = text[:abbrev_start].rstrip()
+    return bool(rest.strip()) and (not before or before[-1] in _UTTERANCE_START)
+
+
+def _is_numbered_roman(match: re.Match[str], profile: LanguageProfile) -> bool:
+    """Is the Roman-shaped word after a numbered abbreviation really a numeral?"""
+    token, roman = match.group("token"), match.group("roman")
+    if roman_to_int(roman) is None:
+        return False
+    # All caps, or lowercase after a lowercase abbreviation ("p. xv").
+    if not (roman.isupper() or (roman.islower() and token.islower())):
+        return False
+    rest = match.string[match.end("roman") :]
+    if len(token) == 1 and len(roman) == 1 and rest.startswith("."):
+        return False  # initials: "P. C. Wren"
+    if profile.guard_roman_i and roman == "I":
+        return not _is_pronoun_i(match.string, match.start(), rest)
+    return True
+
+
 def normalize_abbreviations(text: str, profile: LanguageProfile) -> str:
     if not text:
         return text
@@ -421,8 +435,9 @@ def normalize_abbreviations(text: str, profile: LanguageProfile) -> str:
     if rules.numbered_abbrev is not None:
 
         def numbered(match: re.Match[str]) -> str:
-            # Spoken verbatim: each language writes the casing it wants, since
-            # German capitalizes its nouns and English does not.
+            if match.group("roman") and not _is_numbered_roman(match, profile):
+                return match.group(0)
+            # Not re-cased: each profile writes these in the casing it wants.
             expansion = profile.numbered_abbrevs.get(match.group("token").lower())
             return expansion or match.group(0)
 
@@ -452,9 +467,7 @@ def normalize_eras(text: str, profile: LanguageProfile) -> str:
     return text
 
 
-# ---------------------------------------------------------------------------
-# Roman numerals
-# ---------------------------------------------------------------------------
+# --- Roman numerals ----------------------------------------------------------
 
 
 def normalize_roman_numerals(text: str, profile: LanguageProfile) -> str:
@@ -547,9 +560,7 @@ def normalize_roman_numerals(text: str, profile: LanguageProfile) -> str:
     return f"{numbers.cardinal(value, profile)}{match.group('trail') or ''}"
 
 
-# ---------------------------------------------------------------------------
-# Currency, quantities, symbols
-# ---------------------------------------------------------------------------
+# --- Currency, quantities, symbols -------------------------------------------
 
 
 def normalize_currency(text: str, profile: LanguageProfile) -> str:
@@ -572,10 +583,7 @@ def normalize_currency(text: str, profile: LanguageProfile) -> str:
 
 
 def normalize_quantities(text: str, profile: LanguageProfile) -> str:
-    """Convert "1500 Euro" / "3 Millionen Menschen" while the noun is visible.
-
-    Must run before the year rule, or a price is read as a date.
-    """
+    """Convert "1500 Euro" before the year rule can read the price as a date."""
     if not text:
         return text
     rules = _rules(profile)
@@ -690,9 +698,7 @@ def normalize_times(text: str, profile: LanguageProfile) -> str:
     return _rules(profile).clock.sub(replace, text)
 
 
-# ---------------------------------------------------------------------------
-# Numbers
-# ---------------------------------------------------------------------------
+# --- Numbers -----------------------------------------------------------------
 
 
 def normalize_numbers(text: str, profile: LanguageProfile) -> str:
@@ -836,13 +842,11 @@ def _normalize_residual_digits(text: str, profile: LanguageProfile) -> str:
     return "".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# Orchestrator
-# ---------------------------------------------------------------------------
+# --- Orchestrator ------------------------------------------------------------
 
 
 def normalize_lexical(text: str, profile: LanguageProfile) -> str:
-    """Run the full lexical pipeline for one language."""
+    """Run the lexical pipeline for one language; the step order is load-bearing."""
     for hook in profile.pre_hooks:
         text = hook(text)
     text = normalize_abbreviations(text, profile)

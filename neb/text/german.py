@@ -1,7 +1,4 @@
-"""German profile.
-
-German's departures from the shared pipeline are all data, not code.
-"""
+"""German profile."""
 from __future__ import annotations
 
 from . import engine, numbers
@@ -188,9 +185,7 @@ PROFILE = LanguageProfile(
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared transforms bound to this profile
-# ---------------------------------------------------------------------------
+# --- Shared transforms bound to this profile ---------------------------------
 
 def _int_to_words(value: int) -> str:
     return numbers.cardinal(value, PROFILE)

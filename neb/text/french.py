@@ -1,7 +1,4 @@
-"""French profile.
-
-A pre-hook folds typographic spaces so the amount pattern sees plain ones.
-"""
+"""French profile."""
 from __future__ import annotations
 
 import re
@@ -9,8 +6,8 @@ import re
 from . import engine, numbers
 from .profile import LanguageProfile
 
-# Only a space sitting between a digit and an exact three-digit group is part of
-# a number; every other space is left alone.
+# Typographic spaces (no-break, narrow, thin) between digit groups become plain
+# spaces for the amount pattern; every other space is left alone.
 _DIGIT_GROUP_SPACE_RE = re.compile(r"(?<=\d)[   ](?=\d{3}\b)")
 
 
@@ -163,9 +160,7 @@ PROFILE = LanguageProfile(
 )
 
 
-# ---------------------------------------------------------------------------
-# Shared transforms bound to this profile
-# ---------------------------------------------------------------------------
+# --- Shared transforms bound to this profile ---------------------------------
 
 def _int_to_words(value: int) -> str:
     return numbers.cardinal(value, PROFILE)

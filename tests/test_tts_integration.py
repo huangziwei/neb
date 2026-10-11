@@ -1,7 +1,4 @@
-"""End-to-end tests that run the synth pipeline against a real TTS engine.
-
-Each importable backend is exercised; a missing one is skipped, not failed.
-"""
+"""End-to-end synth tests against each installed TTS backend; missing ones skip."""
 from __future__ import annotations
 
 import json
@@ -55,7 +52,7 @@ def test_synthesize_produces_wav_end_to_end(
 
     voice_path = tmp_path / "voices" / "tone.wav"
     _make_clone_source(voice_path)
-    voice = voice_path.relative_to(tmp_path).as_posix()  # "voices/tone.wav"
+    voice = voice_path.relative_to(tmp_path).as_posix()
 
     chapter = tts.ChapterInput(
         index=1,

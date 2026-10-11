@@ -174,7 +174,6 @@ def test_prepare_tts_text_normalizes_large_numbers() -> None:
 
 
 def test_prepare_tts_text_normalizes_currency_symbols_corpus_examples() -> None:
-    # Samples taken from real book text.
     assert neb_text.prepare_tts_text("That'll be $3.85.") == "That'll be three point eight five dollars."
     assert (
         neb_text.prepare_tts_text("He can buy $50.00 worth of groceries for $6.98.")
@@ -334,6 +333,55 @@ def test_prepare_tts_text_normalizes_no_number_abbrev() -> None:
     text = "See No. 5 for details."
     expected = "See number five for details."
     assert neb_text.prepare_tts_text(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "No. I didn't have to.",
+        "No. I stalled.",
+        "No. I'll get to him.",
+        "No. I’m allowing you to kill yourself.",
+        "No. I—",
+        "Good God, no. I managed to make myself wear a suit.",
+        "I will execute judgment on No. I will pour out my anger.",
+        "No.\n\nI want to throw myself in front of it.",
+        "No. Did he?",
+        "No. Mild, really.",
+    ],
+)
+def test_numbered_abbrev_leaves_the_word_no_alone(text: str) -> None:
+    assert neb_text.normalize_abbreviations(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Gordon, P. C., & Hendrick, R. 1998.", "Wason, P. C. 1965.", "V. I. Lenin"],
+)
+def test_numbered_abbrev_leaves_initials_alone(text: str) -> None:
+    result = neb_text.normalize_abbreviations(text)
+    assert "page" not in result
+    assert "verse" not in result
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Symphony No. IV in F.", "Symphony number IV in F."),
+        ("Box No. II.", "Box number II."),
+        ("It was No. I.", "It was number I."),
+        ("No. I", "number I"),
+        ("See p. xv.", "See page xv."),
+        ("explained on pp. xvii–xviii", "explained on pages xvii–xviii"),
+    ],
+)
+def test_numbered_abbrev_reads_roman_numerals(text: str, expected: str) -> None:
+    assert neb_text.normalize_abbreviations(text) == expected
+
+
+def test_prepare_tts_text_keeps_no_before_pronoun_i() -> None:
+    text = "\"No. I didn't have to. He said, 'I don't know.'\""
+    assert neb_text.prepare_tts_text(text).startswith("No. I didn't have to.")
 
 
 def test_prepare_tts_text_normalizes_page_verse_abbrev() -> None:

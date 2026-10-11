@@ -91,8 +91,7 @@ _WORD_RE = re.compile(r"[^\W\d_](?:[^\W\d_]|['\u2019\-]|\u0300-\u036F)*")
 _ROMAN_NUMERAL_RE = re.compile(r"^[IVXLCDM]+$")
 _SMALL_CAPS_MIN_WORDS = 2
 _ALL_CAPS_HEADING_MAX_WORDS = 8
-# Evidence thresholds for downcasing a *single* capitalized opening word, where
-# a stylized chapter opening and an acronym are otherwise indistinguishable.
+# Evidence needed before a lone capitalized opening word is taken as stylization.
 _SINGLE_OPENING_MIN_LOWERCASE = 3
 _SINGLE_OPENING_MAX_CAPS_SHARE = 1 / 3
 # Drop caps are a house style and repeat; an acronym opening a chapter does not.
@@ -346,10 +345,7 @@ def _variant_score(word: str) -> int:
 
 @dataclass(frozen=True)
 class CaseStats:
-    """How the book itself writes each word.
-
-    A word never written in lowercase is an acronym, not stylization.
-    """
+    """How the book itself writes each word."""
 
     case_map: dict[str, str] = field(default_factory=dict)
     lowercase_counts: dict[str, int] = field(default_factory=dict)
@@ -396,10 +392,7 @@ def _run_is_followed_by_lowercase(run: list[re.Match], matches: list[re.Match]) 
 
 
 def _opens_with_styled_capitals(text: str, case_map: dict[str, str]) -> bool:
-    """Does this chapter open with capitals the book elsewhere writes in lowercase?
-
-    Only the first few paragraphs count, so a heading cannot hide the opening.
-    """
+    """Does this chapter open with capitals the book elsewhere writes in lowercase?"""
     for paragraph in text.lstrip().split("\n\n")[:_STYLED_OPENING_SCAN_PARAGRAPHS]:
         run, matches = _leading_caps_run(paragraph)
         if not _run_is_followed_by_lowercase(run, matches):
@@ -411,10 +404,7 @@ def _opens_with_styled_capitals(text: str, case_map: dict[str, str]) -> bool:
 def build_case_stats(
     chapter_texts: Iterable[str], extra_words: Iterable[str] = ()
 ) -> CaseStats:
-    """Tally how every word is cased across a whole book.
-
-    Pass all chapters: one alone rarely contains both forms of a word.
-    """
+    """Tally how the whole book cases each word; one chapter rarely holds both forms."""
     chapter_texts = list(chapter_texts)
     variants: dict[str, dict[str, int]] = {}
     lowercase_counts: dict[str, int] = {}
@@ -493,8 +483,6 @@ def _normalize_small_caps_paragraph(paragraph: str, stats: CaseStats) -> str:
     if not run:
         return paragraph
 
-    # A lone capitalized word is ambiguous by shape alone, so it is downcased
-    # only when the book's own usage says it is normally a lowercase word.
     if len(run) < _SMALL_CAPS_MIN_WORDS and not stats.is_stylized_opening(
         run[0].group(0)
     ):
@@ -546,10 +534,7 @@ def normalize_small_caps(
     extra_words: Iterable[str] | None = None,
     case_stats: CaseStats | None = None,
 ) -> str:
-    """Downcase stylized capitals at a paragraph opening.
-
-    Pass whole-book `case_stats` when available; this chapter alone is weaker.
-    """
+    """Downcase stylized capitals at a paragraph opening; prefer whole-book `case_stats`."""
     if not text:
         return text
     stats = case_stats or build_case_stats([text], extra_words or [])
@@ -683,10 +668,7 @@ def normalize_all_caps(
 
 
 def _book_case_stats(book_dir: Path, toc: dict) -> CaseStats:
-    """Tally word casing across every raw chapter of the book.
-
-    Cutoff and removal rules are skipped: they do not change a word's spelling.
-    """
+    """Tally word casing across every raw chapter of the book."""
     metadata = toc.get("metadata", {}) if isinstance(toc, dict) else {}
     chapters = toc.get("chapters", []) if isinstance(toc, dict) else []
     texts: list[str] = []

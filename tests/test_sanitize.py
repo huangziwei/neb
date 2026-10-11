@@ -316,9 +316,7 @@ def test_normalize_all_caps_pali_sanskrit_title_case() -> None:
     assert sanitize.normalize_all_caps(text) == expected
 
 
-# ---------------------------------------------------------------------------
-# A single stylized opening word vs. an acronym
-# ---------------------------------------------------------------------------
+# --- A single stylized opening word vs. an acronym ---------------------------
 
 def _stats(*chapters: str) -> sanitize.CaseStats:
     return sanitize.build_case_stats(list(chapters))
@@ -363,8 +361,6 @@ def test_single_opening_word_needs_enough_lowercase_evidence() -> None:
 
 
 def test_repeated_opening_style_lowers_the_evidence_bar() -> None:
-    # Drop caps are a house style and repeat; an acronym opening a chapter does
-    # not. Once the pattern recurs, a single lowercase sighting is enough.
     chapters = [
         "PERHAPS she was right about it.\n\nA quiet room.",
         "SUDDENLY the door swung open.\n\nNobody moved.",
@@ -392,8 +388,7 @@ def test_case_stats_counts_both_forms() -> None:
 
 
 def test_book_wide_evidence_beats_chapter_only_evidence() -> None:
-    # The lowercase form lives in other chapters, which a per-chapter tally
-    # cannot see — this is why the tally is built across the whole book.
+    # The lowercase forms live in other chapters, out of a per-chapter tally's sight.
     opening = "ALTHOUGH the weather was poor, we set out.\n\nShe did not answer."
     others = [
         "Although we were late, the road was clear.",

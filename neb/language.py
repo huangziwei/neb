@@ -67,10 +67,7 @@ class UnsupportedLanguageError(ValueError):
 
 
 def normalize_language_tag(tag: str | None) -> str:
-    """Map a raw dc:language tag to a pocket-tts language name.
-
-    Empty input falls back to DEFAULT_LANGUAGE; an unsupported code raises.
-    """
+    """Map a dc:language tag to a pocket-tts language name, raising if unsupported."""
     if not tag:
         return DEFAULT_LANGUAGE
 
@@ -93,7 +90,6 @@ def normalize_language_tag(tag: str | None) -> str:
 
 
 def display_name(pocket_tts_language: str | None) -> str:
-    """Human-readable name for a pocket-tts language (e.g. 'german' -> 'German')."""
     if not pocket_tts_language:
         return ""
     return _DISPLAY_NAMES.get(
@@ -102,10 +98,6 @@ def display_name(pocket_tts_language: str | None) -> str:
 
 
 def resolve_language(tag: str | None) -> str:
-    """Normalize a raw language tag, falling back to DEFAULT_LANGUAGE.
-
-    For display paths where an unknown code should degrade rather than raise.
-    """
     try:
         return normalize_language_tag(tag)
     except UnsupportedLanguageError:
@@ -113,7 +105,6 @@ def resolve_language(tag: str | None) -> str:
 
 
 def available_layers(language: str) -> list[int]:
-    """Layer variants actually bundled with pocket-tts for a given language."""
     lang = resolve_language(language)
     return sorted({layers for (lng, layers) in _POCKET_TTS_MODEL_IDS if lng == lang})
 
@@ -125,10 +116,6 @@ def default_layers(language: str) -> int:
 
 
 def resolve_layers(language: str, layers: int | None) -> int:
-    """Coerce a requested layer count to one that pocket-tts supports.
-
-    If `layers` is None or unavailable, falls back to the language's default.
-    """
     lang = resolve_language(language)
     options = available_layers(lang)
     if layers in options:

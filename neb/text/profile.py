@@ -1,7 +1,4 @@
-"""The per-language data record that drives every lexical transform.
-
-A profile holds only data; the machinery consuming it lives in `engine`.
-"""
+"""The per-language data record that drives every lexical transform."""
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
@@ -21,8 +18,7 @@ class LanguageProfile:
     name: str
 
     # --- number → words -----------------------------------------------------
-    # `n2w_lang` is the num2words language code; `number_tidy` reshapes its
-    # output to the punctuation-free style the TTS models read best.
+    # `n2w_lang` is a num2words code; `number_tidy` reshapes its output for TTS.
     n2w_lang: str
     decimal_word: str
     minus_word: str
@@ -31,8 +27,7 @@ class LanguageProfile:
     # Joins the whole and fractional halves of a mixed number: "1½" → "one and a half".
     and_word: str = "and"
     number_tidy: TextHook | None = None
-    # Written conventions: which character groups thousands and which marks the
-    # decimal. English is ("," "."); the other five are ("." ",").
+    # Characters that group thousands and mark the decimal in written numbers.
     thousands_sep: str = ","
     decimal_sep: str = "."
     # Filler spoken for a leading zero inside a two-digit pair — English
@@ -51,24 +46,21 @@ class LanguageProfile:
     # Spell Pali and Sanskrit letters the way the model can say them ("ā" → "aa").
     transliterate_indic: bool = False
 
-    # --- currency and magnitude --------------------------------------------
+    # --- currency and magnitude ---------------------------------------------
     currency_units: Mapping[str, SpokenNoun] = field(default_factory=dict)
-    # Magnitude words that may sit between an amount and its noun, spelled or
-    # abbreviated: {"billion": ("billion", "billion"), "bn": (...)}. Lookup is
-    # case-insensitive and a trailing dot is ignored, so "Mrd." finds "mrd".
+    # Magnitude words between an amount and its noun, spelled or abbreviated;
+    # matched case-insensitively with any trailing dot ignored ("Mrd." → "mrd").
     scale_words: Mapping[str, SpokenNoun] = field(default_factory=dict)
     # Magnitude abbreviations too ambiguous to honour on their own — English
     # "20 m" is metres — so they count only directly against a currency symbol.
     scale_abbrevs: Mapping[str, SpokenNoun] = field(default_factory=dict)
-    # Romance languages link a magnitude noun to its unit with a preposition:
-    # "due milioni di euro", "deux milliards de dollars". The thousand words are
-    # numeral adjectives, not nouns, so they are exempt ("duemila euro").
+    # Preposition linking a magnitude noun to its unit ("due milioni di euro"); the
+    # thousand words are numeral adjectives, so they are exempt ("duemila euro").
     scale_preposition: str | None = None
     scale_preposition_exempt: frozenset = frozenset()
 
     # --- symbols ------------------------------------------------------------
-    # Symbols that attach to an amount and inflect with it ("1 degree" /
-    # "5 degrees"): {"%": ("percent", "percent")}.
+    # Symbols that attach to an amount and inflect with it: "5°" → "five degrees".
     symbol_units: Mapping[str, SpokenNoun] = field(default_factory=dict)
     # Temperature scale letters following a degree sign: {"C": "Celsius"}.
     degree_scales: Mapping[str, str] = field(default_factory=dict)
@@ -88,9 +80,8 @@ class LanguageProfile:
     # English alone needs the pronoun "I" protected from becoming "one".
     guard_roman_i: bool = False
     roman_i_determiners: frozenset = frozenset()
-    # Nouns proving a four-digit number is a quantity, not a year, so "1500 Euro"
-    # stays cardinal. Currency and scale words are matched automatically; list
-    # only the extras (units, measures).
+    # Nouns marking a four-digit number as a quantity, not a year ("1500 Euro").
+    # Currency and scale words already count; list only the extras.
     unit_words: Sequence[str] = ()
 
     # --- abbreviations ------------------------------------------------------
@@ -102,8 +93,7 @@ class LanguageProfile:
     # Applied only when a number or Roman numeral follows, and spoken exactly as
     # written here: "No. 5" → "number five", "Nr. 5" → "Nummer fünf".
     numbered_abbrevs: Mapping[str, str] = field(default_factory=dict)
-    # Kept as written but stripped of the dot, so the chunker sees no sentence
-    # end: "Mr." → "Mr".
+    # Kept but stripped of the dot so the chunker sees no sentence end: "Mr." → "Mr".
     dot_strip_abbrevs: Sequence[str] = ()
     # (pattern, replacement) pairs applied case-insensitively for era markers.
     era_replacements: Sequence[tuple[str, str]] = ()
