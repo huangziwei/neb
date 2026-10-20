@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, PageElement, Tag
 from ebooklib import ITEM_DOCUMENT, ITEM_IMAGE, epub
 
 _PARAGRAPH_BREAK = "\n\n"
@@ -16,6 +16,49 @@ _SECTION_BREAK = "\n\n\n"
 _TITLE_BREAK = "\n\n\n\n\n"
 _INLINE_BREAK_PLACEHOLDER = "__NEB_BR__"
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+# _LEAF_BLOCK_TAGS elements are read whole, nested markup included.
+_LEAF_BLOCK_TAGS = {"p", "li", "pre", *_HEADING_TAGS}
+_BLOCK_LEVEL_TAGS = {
+    *_LEAF_BLOCK_TAGS,
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "body",
+    "caption",
+    "center",
+    "dd",
+    "details",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "legend",
+    "main",
+    "menu",
+    "nav",
+    "ol",
+    "section",
+    "summary",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "ul",
+}
 _STRUCTURAL_HEADING_CLASS_TOKENS = {
     "book",
     "chapter",
@@ -72,7 +115,7 @@ def read_epub(path: Path) -> epub.EpubBook:
 
 
 def _unescape_meta(value: str) -> str:
-    """Unescape HTML entities that some EPUBs leave in metadata."""
+    """Unescape HTML entities in ``value`` repeatedly, until it stops changing."""
     prev = None
     while prev != value:
         prev = value
@@ -165,7 +208,7 @@ def _find_cover_item(book: epub.EpubBook) -> object | None:
     for item in book.get_items_of_type(ITEM_IMAGE):
         try:
             data = item.get_content()
-        except Exception:  # noqa: S112 - unreadable image items are simply skipped
+        except Exception:  # noqa: S112 - item is skipped when get_content() raises
             continue
         if not data:
             continue
@@ -231,7 +274,7 @@ def normalize_href(href: str) -> str:
     if not href:
         return ""
     href = href.split("#", 1)[0]
-    # Some EPUBs percent-encode filenames in TOC entries.
+    # unquote() decodes percent-encoded filenames in TOC hrefs.
     return unquote(href)
 
 
@@ -347,7 +390,7 @@ def _looks_like_note_id(value: str) -> bool:
         return False
     if _NOTE_ID_RE.fullmatch(cleaned):
         return True
-    # Some EPUBs use compact IDs such as n12/en9 for notes.
+    # re.fullmatch also accepts compact note ids such as n12 and en9.
     return bool(re.fullmatch(r"(?:n|en)\d+[a-z]?", cleaned))
 
 
@@ -412,8 +455,7 @@ def _normalize_block_text(
         text = re.sub(r"[ \t]{2,}", " ", text)
         return text.strip()
 
-    # EPUB XHTML often wraps text nodes for formatting; those newlines are not
-    # semantic paragraph breaks and should collapse to spaces.
+    # re.sub folds each whitespace run in a segment, newlines included, into one space.
     segments = text.split(_INLINE_BREAK_PLACEHOLDER)
     normalized_segments: list[str] = []
     for segment in segments:
@@ -673,6 +715,54 @@ def _collect_footnote_index(
     return {"note_ids": note_ids, "backref_ids": backref_ids}
 
 
+def _has_block_descendant(elem: Tag) -> bool:
+    return elem.find(_BLOCK_LEVEL_TAGS) is not None
+
+
+def _append_element_block(elem: Tag, blocks: list[tuple[str, bool]]) -> bool:
+    text = _normalize_block_text(
+        elem.get_text(separator="", strip=False),
+        preserve_source_newlines=elem.name == "pre",
+    )
+    if not text:
+        return False
+    if elem.name == "li":
+        num = _ol_item_number(elem)
+        if num is not None:
+            text = f"{num}. {text}"
+    blocks.append((text, _is_structural_heading_block(elem)))
+    return True
+
+
+def _append_run_block(run: list[PageElement], blocks: list[tuple[str, bool]]) -> None:
+    text = _normalize_block_text("".join(node.get_text() for node in run))
+    if text:
+        blocks.append((text, False))
+
+
+def _collect_blocks(container: Tag, blocks: list[tuple[str, bool]]) -> bool:
+    """Append ``container``'s blocks to ``blocks``; True if any is an element block."""
+    found = False
+    run: list[PageElement] = []
+    for child in container.children:
+        if (
+            isinstance(child, Tag)
+            and child.name not in _LEAF_BLOCK_TAGS
+            and _has_block_descendant(child)
+        ):
+            _append_run_block(run, blocks)
+            run = []
+            found = _collect_blocks(child, blocks) or found
+        elif isinstance(child, Tag) and child.name in _BLOCK_LEVEL_TAGS:
+            _append_run_block(run, blocks)
+            run = []
+            found = _append_element_block(child, blocks) or found
+        else:
+            run.append(child)
+    _append_run_block(run, blocks)
+    return found
+
+
 def html_to_text(
     html: bytes,
     footnote_index: dict[str, set[str]] | None = None,
@@ -681,10 +771,24 @@ def html_to_text(
     head = html.lstrip()[:512].lower()
     parser = "lxml-xml" if (head.startswith(b"<?xml") or b"xmlns=" in head) else "lxml"
     soup = BeautifulSoup(html, parser)
-    for tag in soup(["script", "style", "nav", "footer", "aside", "noscript", "figure"]):
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "nav",
+            "footer",
+            "aside",
+            "noscript",
+            "figure",
+            "figcaption",
+            "caption",
+            # "head" and "title" also match a <head> nested inside <body>.
+            "head",
+            "title",
+        ]
+    ):
         tag.decompose()
-    # Only strip page-level <header> (direct child of <body>);
-    # keep section-level ones — they hold chapter titles.
+    # recursive=False limits decompose() to <header> children of body.
     body = soup.body or soup
     for tag in body.find_all("header", recursive=False):
         tag.decompose()
@@ -722,7 +826,24 @@ def html_to_text(
                 )
                 if fragment and (fragment in note_ids or fragment in backref_ids):
                     anchor.decompose()
-    for tag in soup.find_all(["p", "section", "div", "aside", "ol", "ul", "li"]):
+    for tag in soup.find_all(
+        [
+            "p",
+            "section",
+            "div",
+            "aside",
+            "ol",
+            "ul",
+            "li",
+            "table",
+            "tr",
+            "td",
+            "th",
+            "dl",
+            "dt",
+            "dd",
+        ]
+    ):
         attrs = getattr(tag, "attrs", None)
         if attrs is None:
             continue
@@ -745,35 +866,11 @@ def html_to_text(
         if id_text.startswith(("fn", "footnote", "endnote")):
             tag.decompose()
     root = soup.body if soup.body else soup
-
-    # Keep semantic text blocks; skip container divs so nested headings and
-    # paragraphs keep their own boundaries. Blockquote is a container too.
-    block_tags = {"p", "li", "blockquote", "pre", *_HEADING_TAGS}
-    _leaf_block_tags = block_tags - {"blockquote"}
+    for br in root.find_all("br"):
+        br.replace_with(_INLINE_BREAK_PLACEHOLDER)
 
     blocks: list[tuple[str, bool]] = []
-    for elem in root.find_all(block_tags):
-        # Skip elements nested inside a leaf block (e.g. <p> inside <li>).
-        if any(getattr(parent, "name", None) in _leaf_block_tags for parent in elem.parents):
-            continue
-        # Skip blockquotes that contain block-level children — the children
-        # will be processed individually, preserving paragraph breaks.
-        if getattr(elem, "name", None) == "blockquote" and elem.find(_leaf_block_tags):
-            continue
-        for br in elem.find_all("br"):
-            br.replace_with(_INLINE_BREAK_PLACEHOLDER)
-        text = elem.get_text(separator="", strip=False)
-        text = _normalize_block_text(
-            text, preserve_source_newlines=(getattr(elem, "name", "") == "pre")
-        )
-        if text:
-            if getattr(elem, "name", "") == "li":
-                num = _ol_item_number(elem)
-                if num is not None:
-                    text = f"{num}. {text}"
-            blocks.append((text, _is_structural_heading_block(elem)))
-
-    if blocks:
+    if _collect_blocks(root, blocks):
         parts: list[str] = []
         for idx, (block_text, is_heading) in enumerate(blocks):
             parts.append(block_text)
@@ -785,18 +882,29 @@ def html_to_text(
                 )
         return normalize_text("".join(parts))
 
+    # _INLINE_BREAK_PLACEHOLDER and one source newline after it become one "\n".
     text = root.get_text(separator="", strip=False)
+    text = re.sub(re.escape(_INLINE_BREAK_PLACEHOLDER) + r"[ \t]*\n?", "\n", text)
     return normalize_text(text)
 
 
+_INVISIBLE_FORMAT_CHARS_RE = re.compile(
+    "["
+    "\N{SOFT HYPHEN}"
+    "\N{ZERO WIDTH SPACE}-\N{RIGHT-TO-LEFT MARK}"
+    "\N{LEFT-TO-RIGHT EMBEDDING}-\N{RIGHT-TO-LEFT OVERRIDE}"
+    "\N{WORD JOINER}-\N{POP DIRECTIONAL ISOLATE}"
+    "\N{ZERO WIDTH NO-BREAK SPACE}"
+    "]"
+)
+_DOT_RUN_RE = re.compile(r"\.(?:\s*\.){2,}")
+
+
 def normalize_text(text: str) -> str:
-    # Normalize Unicode separators that carry whitespace meaning
-    text = text.replace("\u2028", "\n")   # line separator   → newline
-    text = text.replace("\u2029", "\n\n") # paragraph separator → double newline
-    text = text.replace("\u202f", " ")    # narrow no-break space → space
-    # Strip invisible Unicode format characters (category Cf): BOM,
-    # zero-width spaces, soft hyphens, directional marks, etc.
-    text = re.sub(r"[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]", "", text)
+    text = text.replace("\N{LINE SEPARATOR}", "\n")
+    text = text.replace("\N{PARAGRAPH SEPARATOR}", "\n\n")
+    text = text.replace("\N{NARROW NO-BREAK SPACE}", " ")
+    text = _INVISIBLE_FORMAT_CHARS_RE.sub("", text)
     text = (
         text.replace("\u02bc", "'")
         .replace("\u2018", "'")
@@ -808,14 +916,12 @@ def normalize_text(text: str) -> str:
         .replace("\u00ab", '"')
         .replace("\u00bb", '"')
     )
-    # Normalize Unicode ellipsis to three ASCII dots
-    text = text.replace("\u2026", "...")
+    text = text.replace("\N{HORIZONTAL ELLIPSIS}", "...")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = _normalize_break_runs(text)
     text = re.sub(r"[ \t]{2,}", " ", text)
-    # Collapse any run of 3+ dots (with optional whitespace between) to "..."
-    text = re.sub(r"\.(?:[\s]*\.){2,}", "...", text)
+    text = _DOT_RUN_RE.sub("...", text)
     return text.strip()
 
 
@@ -896,8 +1002,7 @@ def _chapters_from_toc_entries(
         start_idx = spine_index.get(base_href)
         merged_items: list[object] = []
         if start_idx is not None:
-            # A chapter runs from its TOC anchor to the next one (or the end
-            # of the spine); everything between belongs to the earlier chapter.
+            # next_toc_idx is the next TOC entry's spine index, or len(spine_items).
             next_toc_idx = len(spine_items)
             for ti in toc_spine_indices:
                 if ti > start_idx:
@@ -933,9 +1038,8 @@ def _chapters_from_toc_entries(
                 if len(candidate) > 1:
                     merged_items = candidate
 
-            # A chapter body can span several spine files that are not
-            # split-series siblings; take every item up to the TOC boundary.
-            if not merged_items and next_toc_idx > start_idx + 1:
+            # Without a split-series key, merged_items runs to next_toc_idx.
+            if not merged_items and not key and next_toc_idx > start_idx + 1:
                 merged_items = [
                     item for _href, item in spine_items[start_idx:next_toc_idx]
                 ]

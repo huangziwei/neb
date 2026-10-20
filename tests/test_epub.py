@@ -257,6 +257,111 @@ def test_html_to_text_infers_structural_heading_from_compound_title_classes() ->
     assert "1\n\n\nIntroduction\n\n\nBody paragraph." in text
 
 
+def test_html_to_text_keeps_bullets_laid_out_as_bare_table_cells() -> None:
+    html = (
+        b"<html><body>"
+        b"<p>Some features of a healthy mind:</p>"
+        b"<table><tbody><tr>"
+        b"<td><div><div><img src='bullet.jpg' alt=''/></div></div></td>"
+        b"<td>It is an <span>editing</span> mind.</td>"
+        b"</tr></tbody></table>"
+        b"<table><tbody><tr>"
+        b"<td><div><div><img src='bullet.jpg' alt=''/></div></div></td>"
+        b"<td>It knows how to hope.</td>"
+        b"</tr></tbody></table>"
+        b"<p>Outlining these helps.</p>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == (
+        "Some features of a healthy mind:\n\n"
+        "It is an editing mind.\n\n"
+        "It knows how to hope.\n\n"
+        "Outlining these helps."
+    )
+
+
+def test_html_to_text_keeps_loose_text_around_blocks() -> None:
+    html = (
+        b"<html><body>"
+        b"<h1>Title</h1>"
+        b"<div class='item'><b>1</b> <i>The object of love is sacred.</i> It is worshiped.</div>"
+        b"<div>Lead-in text<p>Inner paragraph.</p>Trailing text<br/>on a new line</div>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == (
+        "Title\n\n\n\n\n"
+        "1 The object of love is sacred. It is worshiped.\n\n"
+        "Lead-in text\n\n"
+        "Inner paragraph.\n\n"
+        "Trailing text\non a new line"
+    )
+
+
+def test_html_to_text_keeps_loose_attribution_in_blockquote() -> None:
+    html = (
+        b"<html><body>"
+        b"<blockquote><p>Murder most foul.</p><cite><i>Hamlet</i></cite></blockquote>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == "Murder most foul.\n\nHamlet"
+
+
+def test_html_to_text_reads_nested_blockquotes_once() -> None:
+    html = (
+        b"<html><body>"
+        b"<blockquote><blockquote>The happiest moments of my life.</blockquote></blockquote>"
+        b"<blockquote><blockquote><span>-Thomas Jefferson</span></blockquote></blockquote>"
+        b"<p>Body.</p>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == (
+        "The happiest moments of my life.\n\n-Thomas Jefferson\n\nBody."
+    )
+
+
+def test_html_to_text_ignores_head_nested_in_body() -> None:
+    html = (
+        b"<?xml version='1.0' encoding='utf-8'?>"
+        b"<html xmlns='http://www.w3.org/1999/xhtml'>"
+        b"<head><title>Book Title</title></head>"
+        b"<body><html><head><title>Book Title</title></head>"
+        b"<body><p>Chapter text.</p></body></html></body>"
+        b"</html>"
+    )
+    assert epub_util.html_to_text(html) == "Chapter text."
+
+
+def test_html_to_text_splits_div_paragraphs_despite_empty_spacer_paragraphs() -> None:
+    html = (
+        b"<html><body>"
+        b"<p><br/></p>"
+        b"<div>&#160;&#160;First paragraph.</div>"
+        b"<div>&#160;&#160;Second paragraph.</div>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == "First paragraph.\n\nSecond paragraph."
+
+
+def test_html_to_text_text_only_body_keeps_br_line_breaks() -> None:
+    html = (
+        b"<html><body><p><br/></p>Line one<br/>Line two<br/>\nLine three</body></html>"
+    )
+    assert epub_util.html_to_text(html) == "Line one\nLine two\nLine three"
+
+
+def test_html_to_text_drops_notes_and_captions_in_tables() -> None:
+    html = (
+        b"<html><body>"
+        b"<p>Body text.</p>"
+        b"<table><caption>Table 1</caption>"
+        b"<tr><td>Cell text.</td></tr>"
+        b"<tr><td class='footnote'>1. A note.</td></tr>"
+        b"</table>"
+        b"</body></html>"
+    )
+    assert epub_util.html_to_text(html) == "Body text.\n\nCell text."
+
+
 def test_chapters_from_entries_infers_title_from_text_when_metadata_is_filename() -> None:
     href = "CR!chunk_split_002.html"
     item = _FakeDocumentItem(
@@ -535,6 +640,27 @@ def test_chapters_from_toc_entries_merges_non_split_multi_file_chapters() -> Non
 
     report = epub_util.ingestion_report(book, chapters)
     assert report["orphaned_chars"] == 0
+
+
+def test_chapters_from_toc_entries_split_series_chapter_ends_with_its_series() -> None:
+    items = [
+        _FakeDocumentItem(
+            "content_split_000.xhtml", "", b"<html><body><p>Story one.</p></body></html>", "s0"
+        ),
+        _FakeDocumentItem(
+            "content_split_001.xhtml", "", b"<html><body><p>Story two.</p></body></html>", "s1"
+        ),
+        _FakeDocumentItem(
+            "colophon.xhtml", "", b"<html><body><p>Created with a converter.</p></body></html>", "w2e"
+        ),
+    ]
+    book = _FakeBook(items)
+    entries = [
+        epub_util.TocEntry(title="Story One", href="content_split_000.xhtml"),
+        epub_util.TocEntry(title="Story Two", href="content_split_001.xhtml"),
+    ]
+    chapters = epub_util._chapters_from_toc_entries(book, entries)
+    assert [chapter.text for chapter in chapters] == ["Story one.", "Story two."]
 
 
 def test_ingestion_report_detects_orphaned_items() -> None:
