@@ -48,6 +48,28 @@ from .text.common import (
 )
 from .voice import DEFAULT_VOICE, resolve_voice_prompt
 
+
+def _repo_root() -> Path:
+    start = Path.cwd()
+    for candidate in [start, *start.parents]:
+        if (candidate / "pyproject.toml").exists():
+            return candidate
+    return start
+
+
+def _default_hf_home() -> None:
+    """Default HF_HOME to the repo's .cache/huggingface; an explicit HF_HOME wins.
+
+    huggingface_hub fixes its cache directory from HF_HOME when it is first
+    imported, which the engine imports below do, so this has to run before them:
+    set any later, downloads land in ~/.cache/huggingface instead.
+    """
+    if not os.environ.get("HF_HOME"):
+        os.environ["HF_HOME"] = str(_repo_root() / ".cache" / "huggingface")
+
+
+_default_hf_home()
+
 try:
     import torch
     from pocket_tts import TTSModel
@@ -70,17 +92,8 @@ _TTS_MODEL_CACHE: dict[tuple[str, int], Any] = {}
 _TTS_MODEL_CACHE_LOCK = threading.Lock()
 
 
-def _repo_root() -> Path:
-    start = Path.cwd()
-    for candidate in [start, *start.parents]:
-        if (candidate / "pyproject.toml").exists():
-            return candidate
-    return start
-
-
 def _ensure_hf_home() -> None:
-    if not os.environ.get("HF_HOME"):
-        os.environ["HF_HOME"] = str(_repo_root() / ".cache" / "huggingface")
+    _default_hf_home()
     _ensure_hf_token_visible()
 
 

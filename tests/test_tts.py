@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -1108,6 +1111,18 @@ def test_resolve_backend_name_rejects_unknown(monkeypatch: pytest.MonkeyPatch) -
         tts._resolve_backend_name()
 
 
+def _unset_hf_token_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset the token variables such that teardown also undoes what the test exports.
+
+    `delenv` on a variable that is already unset records nothing to restore, so a
+    token the code under test writes would outlive the test: a fake one then
+    reaches the gated Hugging Face downloads of the end-to-end synth tests.
+    """
+    for name in ("HF_TOKEN", "HF_TOKEN_PATH"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
 def test_ensure_hf_token_visible_exports_user_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1118,8 +1133,7 @@ def test_ensure_hf_token_visible_exports_user_token(
     token_file.parent.mkdir(parents=True)
     token_file.write_text("hf_secret\n", encoding="utf-8")
     monkeypatch.setenv("HF_HOME", str(hf_home))
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+    _unset_hf_token_env(monkeypatch)
     monkeypatch.setattr(tts.Path, "home", lambda: fake_home)
     tts._ensure_hf_token_visible()
     assert tts.os.environ.get("HF_TOKEN") == "hf_secret"
@@ -1132,8 +1146,7 @@ def test_ensure_hf_token_visible_prefers_active_hf_home_token(
     hf_home.mkdir()
     (hf_home / "token").write_text("local", encoding="utf-8")
     monkeypatch.setenv("HF_HOME", str(hf_home))
-    monkeypatch.delenv("HF_TOKEN", raising=False)
-    monkeypatch.delenv("HF_TOKEN_PATH", raising=False)
+    _unset_hf_token_env(monkeypatch)
     tts._ensure_hf_token_visible()
     assert "HF_TOKEN" not in tts.os.environ
 
@@ -1145,3 +1158,22 @@ def test_ensure_hf_token_visible_respects_explicit_token(
     monkeypatch.setenv("HF_HOME", "/nonexistent")
     tts._ensure_hf_token_visible()
     assert tts.os.environ["HF_TOKEN"] == "explicit"
+
+
+def test_import_points_huggingface_hub_cache_at_repo(tmp_path: Path) -> None:
+    # huggingface_hub fixes its cache directory on first import, so only a fresh
+    # interpreter shows where downloads go once neb.tts has loaded the engines.
+    pytest.importorskip("huggingface_hub")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'probe'\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k not in ("HF_HOME", "HF_HUB_CACHE")}
+    code = "import neb.tts, huggingface_hub.constants as c; print(c.HF_HUB_CACHE)"
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    cache = Path(result.stdout.strip().splitlines()[-1])
+    assert cache.resolve() == (tmp_path / ".cache" / "huggingface" / "hub").resolve()
